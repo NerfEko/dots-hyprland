@@ -35,7 +35,12 @@ This is mainly for me, but feel free to fork or use parts of it. No support guar
 ### Quickshell Toggles
 **Added:**
 - GPU Mode - uses [SuperGfxCtl](https://wiki.archlinux.org/title/Supergfxctl) to change GPU mode on gaming laptops
+  - [GpuMode.qml](dots/.config/quickshell/ii/services/GpuMode.qml) - Main service
+  - [GpuModeToggle.qml](dots/.config/quickshell/ii/modules/common/models/quickToggles/GpuModeToggle.qml) - Toggle button
+  - [GpuModeDialog.qml](dots/.config/quickshell/ii/modules/ii/sidebarRight/gpuMode/GpuModeDialog.qml) - Dialog
 - ProtonVPN - added menu for quick connect and choosing between recent or fastest servers.
+  - [ProtonVpnToggle.qml](dots/.config/quickshell/ii/modules/common/models/quickToggles/ProtonVpnToggle.qml) - Toggle button
+  - [VpnDialog.qml](dots/.config/quickshell/ii/modules/ii/sidebarRight/vpnConnections/VpnDialog.qml) - VPN dialog
 
 **Removed**
 - CloudFlare Warp - conflicts with ProtonVPN and not needed.

@@ -5,8 +5,8 @@ A personal fork of [dots-hyprland](https://github.com/end-4/dots-hyprland) tailo
 ## What's Different
 
 - Uses Quickshell instead of AGS (AGS is deprecated)
-- Custom sidebar toggles - different ones enabled/disabled
-- Reworked AI integration - different model defaults, prompts, etc.
+- Custom sidebar toggles - custom GPU mode and ProtonVPN buttons.
+- Reworked AI integration - uses OpenCode instead of Gemini
 - My own keybinds, theme, and preferences baked in
 
 ## Installation
@@ -26,7 +26,7 @@ cd ~/.dots
 
 ## Notes
 
-This is mainly for me, but feel free to fork or use parts of it. No support guaranteed lol.
+This is mainly for me, but feel free to fork or use parts of it. No support guaranteed.
 
 ---
 
@@ -51,8 +51,7 @@ This is mainly for me, but feel free to fork or use parts of it. No support guar
 - Dock
 
 ### AI
-- Added **DeepSeek R1 Distill LLA 70B** via OpenRouter
-- Custom prompt with casual tone, bullet points, markdown formatting
+- Rebuilt AI tab to work with OpenCode implementation instead of Gemini
 
 ### Hyprland Keybinds
 | Keybind | Action |

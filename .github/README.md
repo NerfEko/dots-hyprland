@@ -9,7 +9,7 @@ A personal fork of end-4's [dots-hyprland](https://github.com/end-4/dots-hyprlan
 - Reworked AI integration - uses OpenCode instead of Gemini
 - My own keybinds, theme, and preferences baked in
 
-## Installation
+## Installation - (At your own risk)
 
 ```bash
 git clone https://github.com/NerfEko/dots-hyprland.git ~/.dots

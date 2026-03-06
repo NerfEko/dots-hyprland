@@ -1,6 +1,6 @@
 # My Hyprland Dotfiles
 
-A personal fork of [dots-hyprland](https://github.com/end-4/dots-hyprland) tailored to my setup.
+A personal fork of end-4's [dots-hyprland](https://github.com/end-4/dots-hyprland) tailored to my setup.
 
 ## What's Different
 

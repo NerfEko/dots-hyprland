@@ -33,22 +33,12 @@ This is mainly for me, but feel free to fork or use parts of it. No support guar
 ## Detailed Changes from Default
 
 ### Quickshell Toggles
-**Enabled:**
-- Extra background tint
-- Automatic transparency
-- Wallpaper theming for apps/shell/qt/terminal
-- Parallax for sidebar & workspace
-- Dark mode, keyboard, performance profile, screen snip toggles
-- Overview feature
+**Added:**
+- GPU Mode - uses [SuperGfxCtl](https://wiki.archlinux.org/title/Supergfxctl) to change GPU mode on gaming laptops
+- ProtonVPN - added menu for quick connect and choosing between recent or fastest servers.
 
-**Disabled:**
-- Color picker toggle
-- Mic toggle
-- Screen record toggle
-- Quick sliders in sidebar
-- Translator in sidebar
-- Pomodoro & battery sounds
-- Dock
+**Removed**
+- CloudFlare Warp - conflicts with ProtonVPN and not needed.
 
 ### AI
 - Rebuilt AI tab to work with OpenCode implementation instead of Gemini

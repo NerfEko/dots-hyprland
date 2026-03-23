@@ -1,0 +1,11 @@
+[Unit]
+Description=Cider MPRIS Bridge
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /home/eko/.local/bin/cider-mpris-bridge.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

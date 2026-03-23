@@ -1,0 +1,9 @@
+[Unit]
+Description=Git sync for ~/projects
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects
+ExecStart=/usr/bin/git add -A
+ExecStart=/usr/bin/git diff --staged --quiet && exit 0 || git commit -m "Sync changes"
+ExecStart=/usr/bin/git pull --rebase
+ExecStartPost=/usr/bin/git push

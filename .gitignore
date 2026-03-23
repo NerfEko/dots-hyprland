@@ -1,0 +1,33 @@
+# OS
+.DS_Store
+.Trash-*
+*.swp
+*~
+
+# Cache
+.cache/
+.cache-*
+
+# Downloads
+Downloads/
+
+# Secrets
+.env
+*.key
+*.pem
+*.crt
+.gpg/
+
+# Build artifacts
+__pycache__/
+*.pyc
+node_modules/
+
+# IDE
+.vscode/settings.json
+.cursor/settings.json
+.idea/
+
+# Flatpak
+.var/
+config/nvim/pack/

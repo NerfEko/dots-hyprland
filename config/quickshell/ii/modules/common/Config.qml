@@ -299,6 +299,19 @@ Singleton {
                 property JsonObject tooltips: JsonObject {
                     property bool clickToShow: false
                 }
+                property JsonObject aiApiUsage: JsonObject {
+                    property bool enable: false
+                    property int fetchInterval: 2 // minutes
+                    property JsonObject github: JsonObject {
+                        property bool enable: true
+                    }
+                    property JsonObject claude: JsonObject {
+                        property bool enable: true
+                    }
+                    property JsonObject openrouter: JsonObject {
+                        property bool enable: true
+                    }
+                }
             }
 
             property JsonObject battery: JsonObject {

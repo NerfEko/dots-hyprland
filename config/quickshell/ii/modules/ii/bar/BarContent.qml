@@ -112,6 +112,14 @@ Item { // Bar content region
         }
         spacing: 4
 
+        Loader {
+            active: Config.options.bar.aiApiUsage.enable
+            anchors.verticalCenter: parent.verticalCenter
+            sourceComponent: BarGroup {
+                AiApiUsageBar {}
+            }
+        }
+
         BarGroup {
             id: leftCenterGroup
             anchors.verticalCenter: parent.verticalCenter

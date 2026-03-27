@@ -25,15 +25,60 @@ AbstractBackgroundWidget {
     
     property string cachedTitle: ""
     property string cachedArtist: ""
-    property string cachedArtUrl: ""
+    property string cachedAlbum: ""
     property int cachedLoopState: 0
     property real cachedPosition: 0
-    
+
+    property string artUrl: ""
+    property string lastArtFetchTitle: ""
+    property string hdArtUrl: artUrl ? artUrl.replace(/\/\d+x\d+[a-z]+\.[a-z]+$/, '/512x512bb.jpg') : ""
+    property string artDownloadLocation: Directories.coverArt
+    property string artFileName: Qt.md5(hdArtUrl)
+    property string artFilePath: `${artDownloadLocation}/${artFileName}`
+    property string artImageSource: ""
+
+    function fetchArtUrl() {
+        artUrlFetcher.running = true
+    }
+
+    Process {
+        id: artUrlFetcher
+        command: ["bash", "-c", "url=$(playerctl metadata xesam:artUrl 2>/dev/null); [ -z \"$url\" ] && url=$(playerctl metadata mpris:artUrl 2>/dev/null); printf '%s' \"$url\""]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const url = text.trim()
+                if (root.artUrl !== url) root.artUrl = url
+            }
+        }
+    }
+
+    onArtUrlChanged: {
+        if (hdArtUrl.length === 0) { root.artImageSource = ""; return; }
+        root.artImageSource = ""
+        const target = hdArtUrl
+        const path = root.artFilePath
+        coverArtDownloader.running = false
+        coverArtDownloader.command = ["bash", "-c",
+            `[ -f '${path}' ] || { curl -sSL '${target}' -o '${path}.tmp' && mv '${path}.tmp' '${path}' || { rm -f '${path}.tmp'; exit 1; }; }; printf '%s' '${path}'`
+        ]
+        coverArtDownloader.running = true
+    }
+
+    Process {
+        id: coverArtDownloader
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const path = text.trim()
+                if (path.length > 0) root.artImageSource = "file://" + path
+            }
+        }
+    }
+
     onPlayerChanged: {
         if (player) {
             cachedTitle = player.trackTitle || cachedTitle
             cachedArtist = player.trackArtist || cachedArtist
-            cachedArtUrl = player.trackArtUrl || cachedArtUrl
+            cachedAlbum = player.album || cachedAlbum
             cachedPosition = player.position
             if (player.loopState === MprisLoopState.None) cachedLoopState = 0;
             else if (player.loopState === MprisLoopState.Track) cachedLoopState = 1;
@@ -47,8 +92,9 @@ AbstractBackgroundWidget {
             if (player) {
                 cachedTitle = player.trackTitle || cachedTitle
                 cachedArtist = player.trackArtist || cachedArtist
-                cachedArtUrl = player.trackArtUrl || cachedArtUrl
+                cachedAlbum = player.album || cachedAlbum
             }
+            root.fetchArtUrl()
         }
     }
 
@@ -61,11 +107,16 @@ AbstractBackgroundWidget {
                 player.positionChanged()
                 cachedTitle = player.trackTitle || cachedTitle
                 cachedArtist = player.trackArtist || cachedArtist
-                cachedArtUrl = player.trackArtUrl || cachedArtUrl
+                cachedAlbum = player.album || cachedAlbum
                 cachedPosition = player.position
                 if (player.loopState === MprisLoopState.None) cachedLoopState = 0;
                 else if (player.loopState === MprisLoopState.Track) cachedLoopState = 1;
                 else if (player.loopState === MprisLoopState.Playlist) cachedLoopState = 2;
+            }
+            const title = cachedTitle
+            if (title.length > 0 && title !== root.lastArtFetchTitle) {
+                root.lastArtFetchTitle = title
+                root.fetchArtUrl()
             }
         }
     }
@@ -74,17 +125,15 @@ AbstractBackgroundWidget {
         if (player) {
             cachedTitle = player.trackTitle || ""
             cachedArtist = player.trackArtist || ""
-            cachedArtUrl = player.trackArtUrl || ""
+            cachedAlbum = player.album || ""
         }
+        root.fetchArtUrl()
     }
 
     Rectangle {
         id: background
-        implicitHeight: contentColumn.implicitHeight + 20
-        implicitWidth: Math.max(280, contentColumn.implicitWidth + 20)
-
-        readonly property int artSideMargin: 10
-        readonly property int artSize: implicitWidth - (artSideMargin * 2)
+        implicitHeight: contentColumn.implicitHeight + 30
+        implicitWidth: Math.max(280, contentColumn.implicitWidth + 40)
         color: ColorUtils.applyAlpha(Appearance.colors.colLayer1, 0.2)
         radius: Appearance.rounding.normal
 
@@ -112,37 +161,52 @@ AbstractBackgroundWidget {
 
         ColumnLayout {
             id: contentColumn
-            anchors.centerIn: parent
-            anchors.margins: 10
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.topMargin: 22
+            anchors.bottomMargin: 18
+            anchors.leftMargin: 20
+            anchors.rightMargin: 20
             spacing: 10
 
-            Rectangle {
-                Layout.alignment: Qt.AlignHCenter
-                Layout.preferredWidth: background.artSize
-                Layout.preferredHeight: Layout.preferredWidth
-                radius: 12
-                color: ColorUtils.transparentize(Appearance.colors.colSecondaryContainer, 0.5)
+            Item {
+                id: artItem
+                Layout.fillWidth: true
+                implicitHeight: artImageSource.length > 0 ? width : 0
+                clip: true
 
-                StyledImage {
-                    id: albumImage
+                Rectangle {
+                    id: artContainer
                     anchors.fill: parent
-                    source: cachedArtUrl
-                    fillMode: Image.PreserveAspectCrop
+                    radius: Appearance.rounding.normal
+                    color: ColorUtils.transparentize(Appearance.colors.colSecondaryContainer, 0.5)
 
                     layer.enabled: true
                     layer.effect: OpacityMask {
                         maskSource: Rectangle {
-                            width: albumImage.width
-                            height: albumImage.height
-                            radius: 12
+                            width: artContainer.width
+                            height: artContainer.height
+                            radius: artContainer.radius
                         }
+                    }
+
+                    StyledImage {
+                        anchors.fill: parent
+                        source: root.artImageSource
+                        fillMode: Image.PreserveAspectCrop
+                        cache: false
+                        antialiasing: true
+                        sourceSize.width: artContainer.width
+                        sourceSize.height: artContainer.height
                     }
                 }
             }
 
             ColumnLayout {
                 Layout.fillWidth: true
-                spacing: 2
+                spacing: 4
 
                 StyledText {
                     Layout.fillWidth: true
@@ -151,6 +215,16 @@ AbstractBackgroundWidget {
                     elide: Text.ElideRight
                     text: cachedTitle.length > 0 ? StringUtils.cleanMusicTitle(cachedTitle) : Translation.tr("No media")
                     horizontalAlignment: Text.AlignHCenter
+                    font.bold: true
+                }
+
+                StyledText {
+                    Layout.fillWidth: true
+                    font.pixelSize: Appearance.font.pixelSize.smaller
+                    color: Appearance.colors.colOnSecondaryContainer
+                    elide: Text.ElideRight
+                    text: cachedArtist
+                    horizontalAlignment: Text.AlignHCenter
                 }
 
                 StyledText {
@@ -158,8 +232,9 @@ AbstractBackgroundWidget {
                     font.pixelSize: Appearance.font.pixelSize.smaller
                     color: Appearance.colors.colSubtext
                     elide: Text.ElideRight
-                    text: cachedArtist
+                    text: cachedAlbum
                     horizontalAlignment: Text.AlignHCenter
+                    visible: cachedAlbum && cachedAlbum.length > 0
                 }
             }
 
@@ -173,7 +248,10 @@ AbstractBackgroundWidget {
                     highlightColor: Appearance.colors.colPrimary
                     trackColor: Appearance.colors.colSecondaryContainer
                     handleColor: Appearance.colors.colPrimary
+                    trackDotSize: 0
+                    stopIndicatorValues: []
                     usePercentTooltip: false
+                    showTooltip: false
                     value: player && player.length > 0 ? (player.position / player.length) : 0
                     onMoved: {
                         if (player && player.length > 0) {

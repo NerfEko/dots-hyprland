@@ -8,6 +8,10 @@ import qs.modules.common.widgets
 ContentPage {
     forceWidth: true
 
+    Component.onCompleted: {
+        if (!KeyringStorage.loaded) KeyringStorage.fetchKeyringData()
+    }
+
     ContentSection {
         icon: "neurology"
         title: Translation.tr("AI")
@@ -21,6 +25,126 @@ ContentPage {
                 Qt.callLater(() => {
                     Config.options.ai.systemPrompt = text;
                 });
+            }
+        }
+    }
+
+    ContentSection {
+        icon: "key"
+        title: Translation.tr("AI API Keys")
+
+        StyledText {
+            Layout.fillWidth: true
+            text: Translation.tr("Keys are stored in the system keyring, not in config files.")
+            font.pixelSize: Appearance.font.pixelSize.small
+            color: Appearance.colors.colOnSurfaceVariant
+            wrapMode: Text.WordWrap
+        }
+
+        ContentSubsection {
+            title: Translation.tr("GitHub")
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                MaterialTextArea {
+                    id: githubTokenField
+                    Layout.fillWidth: true
+                    placeholderText: Translation.tr("Personal access token")
+                    text: KeyringStorage.keyringData?.apiKeys?.github_token ?? ""
+                    wrapMode: TextEdit.NoWrap
+                }
+
+                RippleButton {
+                    Layout.fillHeight: true
+                    implicitWidth: implicitHeight
+                    onClicked: {
+                        KeyringStorage.setNestedField(["apiKeys", "github_token"], githubTokenField.text.trim())
+                    }
+                    contentItem: MaterialSymbol {
+                        anchors.centerIn: parent
+                        text: "save"
+                        iconSize: 20
+                    }
+                    StyledToolTip {
+                        text: Translation.tr("Save to keyring")
+                    }
+                }
+            }
+        }
+
+        ContentSubsection {
+            title: Translation.tr("Claude.ai")
+
+            StyledText {
+                Layout.fillWidth: true
+                text: Translation.tr("Open DevTools → Application → Cookies → claude.ai → sessionKey")
+                font.pixelSize: Appearance.font.pixelSize.smaller
+                color: Appearance.colors.colOnSurfaceVariant
+                wrapMode: Text.WordWrap
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                MaterialTextArea {
+                    id: claudeCookieField
+                    Layout.fillWidth: true
+                    placeholderText: Translation.tr("sessionKey cookie value")
+                    text: KeyringStorage.keyringData?.apiKeys?.claude_session_cookie ?? ""
+                    wrapMode: TextEdit.NoWrap
+                }
+
+                RippleButton {
+                    Layout.fillHeight: true
+                    implicitWidth: implicitHeight
+                    onClicked: {
+                        KeyringStorage.setNestedField(["apiKeys", "claude_session_cookie"], claudeCookieField.text.trim())
+                    }
+                    contentItem: MaterialSymbol {
+                        anchors.centerIn: parent
+                        text: "save"
+                        iconSize: 20
+                    }
+                    StyledToolTip {
+                        text: Translation.tr("Save to keyring")
+                    }
+                }
+            }
+        }
+
+        ContentSubsection {
+            title: Translation.tr("OpenRouter")
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                MaterialTextArea {
+                    id: openrouterKeyField
+                    Layout.fillWidth: true
+                    placeholderText: Translation.tr("API key")
+                    text: KeyringStorage.keyringData?.apiKeys?.openrouter_api_key ?? ""
+                    wrapMode: TextEdit.NoWrap
+                }
+
+                RippleButton {
+                    Layout.fillHeight: true
+                    implicitWidth: implicitHeight
+                    onClicked: {
+                        KeyringStorage.setNestedField(["apiKeys", "openrouter_api_key"], openrouterKeyField.text.trim())
+                    }
+                    contentItem: MaterialSymbol {
+                        anchors.centerIn: parent
+                        text: "save"
+                        iconSize: 20
+                    }
+                    StyledToolTip {
+                        text: Translation.tr("Save to keyring")
+                    }
+                }
             }
         }
     }
@@ -161,21 +285,19 @@ ContentPage {
         }
     }
 
-    FileDialog {
+    FolderDialog {
         id: videoPathDialog
         title: Translation.tr("Select Video Recording Folder")
-        mode: FileDialog.OpenFolder
         onAccepted: {
-            Config.options.screenRecord.savePath = videoPathDialog.folder.toString().replace("file://", "")
+            Config.options.screenRecord.savePath = videoPathDialog.selectedFolder.toString().replace("file://", "")
         }
     }
 
-    FileDialog {
+    FolderDialog {
         id: screenshotPathDialog
         title: Translation.tr("Select Screenshot Folder")
-        mode: FileDialog.OpenFolder
         onAccepted: {
-            Config.options.screenSnip.savePath = screenshotPathDialog.folder.toString().replace("file://", "")
+            Config.options.screenSnip.savePath = screenshotPathDialog.selectedFolder.toString().replace("file://", "")
         }
     }
 

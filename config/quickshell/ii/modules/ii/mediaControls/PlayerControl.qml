@@ -16,8 +16,9 @@ Item { // Player instance
     id: root
     required property MprisPlayer player
     property var artUrl: player?.trackArtUrl
+    property string hdArtUrl: artUrl ? artUrl.replace(/\/\d+x\d+[a-z]+\.[a-z]+$/, '/600x600bb.jpg') : (artUrl ?? "")
     property string artDownloadLocation: Directories.coverArt
-    property string artFileName: Qt.md5(artUrl)
+    property string artFileName: Qt.md5(hdArtUrl)
     property string artFilePath: `${artDownloadLocation}/${artFileName}`
     property color artDominantColor: ColorUtils.mix((colorQuantizer?.colors[0] ?? Appearance.colors.colPrimary), Appearance.colors.colPrimaryContainer, 0.8) || Appearance.m3colors.m3secondaryContainer
     property bool downloaded: false
@@ -60,13 +61,13 @@ Item { // Player instance
     }
 
     onArtFilePathChanged: {
-        if (root.artUrl.length == 0) {
+        if (root.hdArtUrl.length == 0) {
             root.artDominantColor = Appearance.m3colors.m3secondaryContainer
             return;
         }
 
         // Binding does not work in Process
-        coverArtDownloader.targetFile = root.artUrl 
+        coverArtDownloader.targetFile = root.hdArtUrl
         coverArtDownloader.artFilePath = root.artFilePath
         // Download
         root.downloaded = false
@@ -75,7 +76,7 @@ Item { // Player instance
 
     Process { // Cover art downloader
         id: coverArtDownloader
-        property string targetFile: root.artUrl
+        property string targetFile: root.hdArtUrl
         property string artFilePath: root.artFilePath
         command: [ "bash", "-c", `[ -f ${artFilePath} ] || curl -sSL '${targetFile}' -o '${artFilePath}'` ]
         onExited: (exitCode, exitStatus) => {

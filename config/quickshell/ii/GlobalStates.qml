@@ -27,6 +27,8 @@ Singleton {
     property bool sessionOpen: false
     property bool superDown: false
     property bool superReleaseMightTrigger: true
+    property bool voiceInputOpen: false
+    property string voiceInputPreviousWindowAddress: ""
     property bool wallpaperSelectorOpen: false
     property bool workspaceShowNumbers: false
 

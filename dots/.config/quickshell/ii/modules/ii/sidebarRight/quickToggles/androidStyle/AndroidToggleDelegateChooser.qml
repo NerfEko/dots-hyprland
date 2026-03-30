@@ -19,10 +19,21 @@ DelegateChooser {
     signal openBluetoothDialog()
     signal openNightLightDialog()
     signal openWifiDialog()
-    signal openGpuModeDialog()
-    signal openVpnDialog()
 
     role: "type"
+
+    DelegateChoice { roleValue: "faceId"; AndroidFaceIdToggle {
+        required property int index
+        required property var modelData
+        buttonIndex: root.startingIndex + index
+        buttonData: modelData
+        editMode: root.editMode
+        expandedSize: modelData.size > 1
+        baseCellWidth: root.baseCellWidth
+        baseCellHeight: root.baseCellHeight
+        cellSpacing: root.spacing
+        cellSize: modelData.size
+    } }
 
     DelegateChoice { roleValue: "antiFlashbang"; AndroidAntiFlashbangToggle {
         required property int index
@@ -111,6 +122,19 @@ DelegateChooser {
         cellSize: modelData.size
     } }
 
+    DelegateChoice { roleValue: "displayMode"; AndroidDisplayModeToggle {
+        required property int index
+        required property var modelData
+        buttonIndex: root.startingIndex + index
+        buttonData: modelData
+        editMode: root.editMode
+        expandedSize: modelData.size > 1
+        baseCellWidth: root.baseCellWidth
+        baseCellHeight: root.baseCellHeight
+        cellSpacing: root.spacing
+        cellSize: modelData.size
+    } }
+
     DelegateChoice { roleValue: "easyEffects"; AndroidEasyEffectsToggle {
         required property int index
         required property var modelData
@@ -135,22 +159,6 @@ DelegateChooser {
         baseCellHeight: root.baseCellHeight
         cellSpacing: root.spacing
         cellSize: modelData.size
-    } }
-
-    DelegateChoice { roleValue: "gpuMode"; AndroidGpuModeToggle {
-        required property int index
-        required property var modelData
-        buttonIndex: root.startingIndex + index
-        buttonData: modelData
-        editMode: root.editMode
-        expandedSize: modelData.size > 1
-        baseCellWidth: root.baseCellWidth
-        baseCellHeight: root.baseCellHeight
-        cellSpacing: root.spacing
-        cellSize: modelData.size
-        onOpenMenu: {
-            root.openGpuModeDialog()
-        }
     } }
 
     DelegateChoice { roleValue: "idleInhibitor"; AndroidIdleInhibitorToggle {
@@ -183,6 +191,19 @@ DelegateChooser {
     } }
 
     DelegateChoice { roleValue: "musicRecognition"; AndroidMusicRecognition {
+        required property int index
+        required property var modelData
+        buttonIndex: root.startingIndex + index
+        buttonData: modelData
+        editMode: root.editMode
+        expandedSize: modelData.size > 1
+        baseCellWidth: root.baseCellWidth
+        baseCellHeight: root.baseCellHeight
+        cellSpacing: root.spacing
+        cellSize: modelData.size
+    } }
+
+    DelegateChoice { roleValue: "oledMode"; AndroidOledModeToggle {
         required property int index
         required property var modelData
         buttonIndex: root.startingIndex + index
@@ -264,20 +285,6 @@ DelegateChooser {
         baseCellHeight: root.baseCellHeight
         cellSpacing: root.spacing
         cellSize: modelData.size
-    } }
-
-    DelegateChoice { roleValue: "protonVpn"; AndroidProtonVpnToggle {
-        required property int index
-        required property var modelData
-        buttonIndex: root.startingIndex + index
-        buttonData: modelData
-        editMode: root.editMode
-        expandedSize: modelData.size > 1
-        baseCellWidth: root.baseCellWidth
-        baseCellHeight: root.baseCellHeight
-        cellSpacing: root.spacing
-        cellSize: modelData.size
-        onOpenMenu: root.openVpnDialog()
     } }
 
     DelegateChoice { roleValue: "screenSnip"; AndroidScreenSnipToggle {

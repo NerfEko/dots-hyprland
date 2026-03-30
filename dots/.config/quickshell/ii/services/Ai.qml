@@ -10,50 +10,45 @@ import QtQuick
 import qs.services.ai
 
 /**
- * AI service powered by OpenCode HTTP Server API.
- * Uses SSE (Server-Sent Events) via GET /event for real-time token streaming.
- * Messages sent via POST /session/{id}/prompt_async.
- * Server: opencode serve --port 4096 --hostname 127.0.0.1
+ * Basic service to handle LLM chats. Supports Google's and OpenAI's API formats.
+ * Supports Gemini and OpenAI models.
+ * Limitations:
+ * - For now functions only work with Gemini API format
  */
 Singleton {
     id: root
 
     property Component aiMessageComponent: AiMessageData {}
+    property Component aiModelComponent: AiModel {}
+    property Component geminiApiStrategy: GeminiApiStrategy {}
+    property Component openaiApiStrategy: OpenAiApiStrategy {}
+    property Component mistralApiStrategy: MistralApiStrategy {}
     readonly property string interfaceRole: "interface"
-    readonly property string apiBase: "http://127.0.0.1:4096"
+    readonly property string apiKeyEnvVarName: "API_KEY"
 
     signal responseFinished()
 
-    // ─── OpenCode session & server state ──────────────────────────────────
-    property string sessionId: ""
-    property string sessionTitle: ""
-    property bool serverAvailable: false
-    property bool sessionBusy: false
-
-    // Tracks the assistant message currently being streamed
-    property string currentAssistantMsgId: ""
-    property AiMessageData currentMessage: null
-
-    // Reasoning/thinking buffer for current message
-    property string currentReasoning: ""
-
-    // Track tool parts by partID so we can update status transitions
-    property var toolParts: ({})
-
-    // ─── Pending permission requests ─────────────────────────────────────
-    property var pendingPermissions: []
-
-    // ─── System prompt & config ──────────────────────────────────────────
     property string systemPrompt: {
         let prompt = Config.options?.ai?.systemPrompt ?? "";
         for (let key in root.promptSubstitutions) {
+            // prompt = prompt.replaceAll(key, root.promptSubstitutions[key]);
+            // QML/JS doesn't support replaceAll, so use split/join
             prompt = prompt.split(key).join(root.promptSubstitutions[key]);
         }
         return prompt;
     }
-
+    // property var messages: []
     property var messageIDs: []
     property var messageByID: ({})
+    readonly property var apiKeys: KeyringStorage.keyringData?.apiKeys ?? {}
+    readonly property var apiKeysLoaded: KeyringStorage.loaded
+    readonly property bool currentModelHasApiKey: {
+        const model = models[currentModelId];
+        if (!model || !model.requires_key) return true;
+        if (!apiKeysLoaded) return false;
+        const key = apiKeys[model.key_id];
+        return (key?.length > 0);
+    }
     property var postResponseHook
     property real temperature: Persistent.states?.ai?.temperature ?? 0.5
     property QtObject tokenCount: QtObject {
@@ -63,7 +58,12 @@ Singleton {
     }
 
     function idForMessage(message) {
+        // Generate a unique ID using timestamp and random value
         return Date.now().toString(36) + Math.random().toString(36).substr(2, 8);
+    }
+
+    function safeModelName(modelName) {
+        return modelName.replace(/:/g, "_").replace(/ /g, "-").replace(/\//g, "-")
     }
 
     property list<var> defaultPrompts: []
@@ -75,113 +75,800 @@ Singleton {
         "{DISTRO}": SystemInfo.distroName,
         "{DATETIME}": `${DateTime.time}, ${DateTime.collapsedCalendarFormat}`,
         "{WINDOWCLASS}": ToplevelManager.activeToplevel?.appId ?? "Unknown",
-        "{DE}": `${SystemInfo.desktopEnvironment} (${SystemInfo.windowingSystem})`
+        "{DE}": `${SystemInfo.desktopEnvironment} (${SystemInfo.windowingSystem})`,
+        "{CPU}": `${ResourceUsage.maxAvailableCpuString}`,
+        "{CPU_MODEL}": ResourceUsage.cpuModel,
+        "{RAM}": `${ResourceUsage.maxAvailableMemoryString}`,
+        "{RAM_USED}": `${ResourceUsage.kbToGbString(ResourceUsage.memoryUsed)} (${Math.round(ResourceUsage.memoryUsedPercentage * 100)}%)`,
+        "{GPU}": `${Math.round(ResourceUsage.gpuUsage * 100)}%`,
+        "{GPU_MODEL}": ResourceUsage.gpuModel,
+        "{CORES}": ResourceUsage.cpuCores
     }
 
-    // ─── Agent (build / plan) ────────────────────────────────────────────
-    property string currentAgent: Persistent.states?.ai?.agent || "build"
-
-    function toggleAgent() {
-        const next = root.currentAgent === "plan" ? "build" : "plan";
-        root.currentAgent = next;
-        Persistent.states.ai.agent = next;
+    // Gemini: https://ai.google.dev/gemini-api/docs/function-calling
+    // OpenAI: https://platform.openai.com/docs/guides/function-calling
+    property string currentTool: Config?.options.ai.tool ?? "search"
+    property var tools: {
+        "gemini": {
+            "functions": [{"functionDeclarations": [
+                {
+                    "name": "switch_to_search_mode",
+                    "description": "Search the web",
+                },
+                {
+                    "name": "get_shell_config",
+                    "description": "Get the desktop shell config file contents",
+                },
+                {
+                    "name": "set_shell_config",
+                    "description": "Set a field in the desktop graphical shell config file. Must only be used after `get_shell_config`.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "key": {
+                                "type": "string",
+                                "description": "The key to set, e.g. `bar.borderless`. MUST NOT BE GUESSED, use `get_shell_config` to see what keys are available before setting.",
+                            },
+                            "value": {
+                                "type": "string",
+                                "description": "The value to set, e.g. `true`"
+                            }
+                        },
+                        "required": ["key", "value"]
+                    }
+                },
+                {
+                    "name": "run_shell_command",
+                    "description": "Run a shell command in bash and get its output. Use this only for quick commands that don't require user interaction. For commands that require interaction, ask the user to run manually instead.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "command": {
+                                "type": "string",
+                                "description": "The bash command to run",
+                            },
+                        },
+                        "required": ["command"]
+                    }
+                },
+                {
+                    "name": "read_file",
+                    "description": "Read the contents of a file. Returns the full file contents.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "path": {
+                                "type": "string",
+                                "description": "Absolute path to the file to read",
+                            },
+                        },
+                        "required": ["path"]
+                    }
+                },
+                {
+                    "name": "write_file",
+                    "description": "Write content to a file, creating it if it doesn't exist or overwriting if it does.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "path": {
+                                "type": "string",
+                                "description": "Absolute path to the file to write",
+                            },
+                            "content": {
+                                "type": "string",
+                                "description": "The content to write to the file",
+                            },
+                        },
+                        "required": ["path", "content"]
+                    }
+                },
+                {
+                    "name": "edit_file",
+                    "description": "Edit a file by replacing the first occurrence of old_string with new_string. Use after reading the file first.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "path": {
+                                "type": "string",
+                                "description": "Absolute path to the file to edit",
+                            },
+                            "old_string": {
+                                "type": "string",
+                                "description": "The exact string to find and replace in the file",
+                            },
+                            "new_string": {
+                                "type": "string",
+                                "description": "The string to replace old_string with",
+                            },
+                        },
+                        "required": ["path", "old_string", "new_string"]
+                    }
+                },
+            ]}],
+            "search": [{
+                "google_search": {}
+            }],
+            "search": [{
+                "google_search": {}
+            }],
+            "none": [],
+            "quick": [{"functionDeclarations": [
+                {
+                    "name": "run_shell_command",
+                    "description": "Run a shell command in bash and get its output. Use this only for quick commands that don't require user interaction. For commands that require interaction, ask the user to run manually instead.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "command": {
+                                "type": "string",
+                                "description": "The bash command to run",
+                            },
+                        },
+                        "required": ["command"]
+                    }
+                },
+                {
+                    "name": "read_file",
+                    "description": "Read the contents of a file. Returns the full file contents.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "path": {
+                                "type": "string",
+                                "description": "Absolute path to the file to read",
+                            },
+                        },
+                        "required": ["path"]
+                    }
+                },
+            ]}],
+        },
+        "openai": {
+            "functions": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "get_shell_config",
+                        "description": "Get the desktop shell config file contents",
+                        "parameters": {}
+                    },
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "set_shell_config",
+                        "description": "Set a field in the desktop graphical shell config file. Must only be used after `get_shell_config`.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "key": {
+                                    "type": "string",
+                                    "description": "The key to set, e.g. `bar.borderless`. MUST NOT BE GUESSED, use `get_shell_config` to see what keys are available before setting.",
+                                },
+                                "value": {
+                                    "type": "string",
+                                    "description": "The value to set, e.g. `true`"
+                                }
+                            },
+                            "required": ["key", "value"]
+                        }
+                    }
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "run_shell_command",
+                        "description": "Run a shell command in bash and get its output. Use this only for quick commands that don't require user interaction. For commands that require interaction, ask the user to run manually instead.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "command": {
+                                    "type": "string",
+                                    "description": "The bash command to run",
+                                },
+                            },
+                            "required": ["command"]
+                        }
+                    },
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "read_file",
+                        "description": "Read the contents of a file. Returns the full file contents.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": "Absolute path to the file to read",
+                                },
+                            },
+                            "required": ["path"]
+                        }
+                    },
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "write_file",
+                        "description": "Write content to a file, creating it if it doesn't exist or overwriting if it does.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": "Absolute path to the file to write",
+                                },
+                                "content": {
+                                    "type": "string",
+                                    "description": "The content to write to the file",
+                                },
+                            },
+                            "required": ["path", "content"]
+                        }
+                    },
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "edit_file",
+                        "description": "Edit a file by replacing the first occurrence of old_string with new_string. Use after reading the file first.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": "Absolute path to the file to edit",
+                                },
+                                "old_string": {
+                                    "type": "string",
+                                    "description": "The exact string to find and replace in the file",
+                                },
+                                "new_string": {
+                                    "type": "string",
+                                    "description": "The string to replace old_string with",
+                                },
+                            },
+                            "required": ["path", "old_string", "new_string"]
+                        }
+                    },
+                },
+            ],
+            "search": [],
+            "none": [],
+            "quick": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "run_shell_command",
+                        "description": "Run a shell command in bash and get its output. Use this only for quick commands that don't require user interaction. For commands that require interaction, ask the user to run manually instead.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "command": {
+                                    "type": "string",
+                                    "description": "The bash command to run",
+                                },
+                            },
+                            "required": ["command"]
+                        }
+                    },
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "read_file",
+                        "description": "Read the contents of a file. Returns the full file contents.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": "Absolute path to the file to read",
+                                },
+                            },
+                            "required": ["path"]
+                        }
+                    },
+                },
+            ],
+            "files": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "read_file",
+                        "description": "Read the contents of a file. Returns the full file contents.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": "Absolute path to the file to read",
+                                },
+                            },
+                            "required": ["path"]
+                        }
+                    },
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "write_file",
+                        "description": "Write content to a file, creating it if it doesn't exist or overwriting if it does.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": "Absolute path to the file to write",
+                                },
+                                "content": {
+                                    "type": "string",
+                                    "description": "The content to write to the file",
+                                },
+                            },
+                            "required": ["path", "content"]
+                        }
+                    },
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "edit_file",
+                        "description": "Edit a file by replacing the first occurrence of old_string with new_string. Use after reading the file first.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": "Absolute path to the file to edit",
+                                },
+                                "old_string": {
+                                    "type": "string",
+                                    "description": "The exact string to find and replace in the file",
+                                },
+                                "new_string": {
+                                    "type": "string",
+                                    "description": "The string to replace old_string with",
+                                },
+                            },
+                            "required": ["path", "old_string", "new_string"]
+                        }
+                    },
+                },
+            ],
+            "files": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "read_file",
+                        "description": "Read the contents of a file. Returns the full file contents.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": "Absolute path to the file to read",
+                                },
+                            },
+                            "required": ["path"]
+                        }
+                    },
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "write_file",
+                        "description": "Write content to a file, creating it if it doesn't exist or overwriting if it does.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": "Absolute path to the file to write",
+                                },
+                                "content": {
+                                    "type": "string",
+                                    "description": "The content to write to the file",
+                                },
+                            },
+                            "required": ["path", "content"]
+                        }
+                    },
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "edit_file",
+                        "description": "Edit a file by replacing the first occurrence of old_string with new_string. Use after reading the file first.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": "Absolute path to the file to edit",
+                                },
+                                "old_string": {
+                                    "type": "string",
+                                    "description": "The exact string to find and replace in the file",
+                                },
+                                "new_string": {
+                                    "type": "string",
+                                    "description": "The string to replace old_string with",
+                                },
+                            },
+                            "required": ["path", "old_string", "new_string"]
+                        }
+                    },
+                },
+            ],
+        },
+        "mistral": {
+            "functions": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "get_shell_config",
+                        "description": "Get the desktop shell config file contents",
+                        "parameters": {}
+                    },
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "set_shell_config",
+                        "description": "Set a field in the desktop graphical shell config file. Must only be used after `get_shell_config`.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "key": {
+                                    "type": "string",
+                                    "description": "The key to set, e.g. `bar.borderless`. MUST NOT BE GUESSED, use `get_shell_config` to see what keys are available before setting.",
+                                },
+                                "value": {
+                                    "type": "string",
+                                    "description": "The value to set, e.g. `true`"
+                                }
+                            },
+                            "required": ["key", "value"]
+                        }
+                    }
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "run_shell_command",
+                        "description": "Run a shell command in bash and get its output. Use this only for quick commands that don't require user interaction. For commands that require interaction, ask the user to run manually instead.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "command": {
+                                    "type": "string",
+                                    "description": "The bash command to run",
+                                },
+                            },
+                            "required": ["command"]
+                        }
+                    },
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "read_file",
+                        "description": "Read the contents of a file. Returns the full file contents.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": "Absolute path to the file to read",
+                                },
+                            },
+                            "required": ["path"]
+                        }
+                    },
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "write_file",
+                        "description": "Write content to a file, creating it if it doesn't exist or overwriting if it does.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": "Absolute path to the file to write",
+                                },
+                                "content": {
+                                    "type": "string",
+                                    "description": "The content to write to the file",
+                                },
+                            },
+                            "required": ["path", "content"]
+                        }
+                    },
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "edit_file",
+                        "description": "Edit a file by replacing the first occurrence of old_string with new_string. Use after reading the file first.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": "Absolute path to the file to edit",
+                                },
+                                "old_string": {
+                                    "type": "string",
+                                    "description": "The exact string to find and replace in the file",
+                                },
+                                "new_string": {
+                                    "type": "string",
+                                    "description": "The string to replace old_string with",
+                                },
+                            },
+                            "required": ["path", "old_string", "new_string"]
+                        }
+                    },
+                },
+            ],
+            "search": [],
+            "none": [],
+            "quick": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "run_shell_command",
+                        "description": "Run a shell command in bash and get its output. Use this only for quick commands that don't require user interaction. For commands that require interaction, ask the user to run manually instead.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "command": {
+                                    "type": "string",
+                                    "description": "The bash command to run",
+                                },
+                            },
+                            "required": ["command"]
+                        }
+                    },
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "read_file",
+                        "description": "Read the contents of a file. Returns the full file contents.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": "Absolute path to the file to read",
+                                },
+                            },
+                            "required": ["path"]
+                        }
+                    },
+                },
+            ],
+            "files": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "read_file",
+                        "description": "Read the contents of a file. Returns the full file contents.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": "Absolute path to the file to read",
+                                },
+                            },
+                            "required": ["path"]
+                        }
+                    },
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "write_file",
+                        "description": "Write content to a file, creating it if it doesn't exist or overwriting if it does.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": "Absolute path to the file to write",
+                                },
+                                "content": {
+                                    "type": "string",
+                                    "description": "The content to write to the file",
+                                },
+                            },
+                            "required": ["path", "content"]
+                        }
+                    },
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "edit_file",
+                        "description": "Edit a file by replacing the first occurrence of old_string with new_string. Use after reading the file first.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": "Absolute path to the file to edit",
+                                },
+                                "old_string": {
+                                    "type": "string",
+                                    "description": "The exact string to find and replace in the file",
+                                },
+                                "new_string": {
+                                    "type": "string",
+                                    "description": "The string to replace old_string with",
+                                },
+                            },
+                            "required": ["path", "old_string", "new_string"]
+                        }
+                    },
+                },
+            ],
+        }
+    }
+    property list<var> availableTools: Object.keys(root.tools[models[currentModelId]?.api_format])
+    property var toolDescriptions: {
+        "functions": Translation.tr("Commands, edit configs, read/write files, search.\nTakes an extra turn to switch to search mode if that's needed"),
+        "files": Translation.tr("Read, write, and edit files only.\nSlower than none, but full file operations"),
+        "quick": Translation.tr("Fast tools: shell commands and file reading only.\nBest for local Ollama models"),
+        "search": Translation.tr("Gives the model search capabilities (immediately)"),
+        "none": Translation.tr("Disable tools")
     }
 
-    // ─── Models ──────────────────────────────────────────────────────────
-    property var models: ({})
-    property var modelList: []
-    property string currentModelId: Persistent.states?.ai?.model || ""
-
-    // File attachment
-    property string pendingFilePath: ""
-
-    Component.onCompleted: {
-        fetchModels.running = true;
-        // Start SSE listener after a brief delay to let server be ready
-        sseReconnectTimer.interval = 1000;
-        sseReconnectTimer.start();
+    // Model properties:
+    // - name: Name of the model
+    // - icon: Icon name of the model
+    // - description: Description of the model
+    // - endpoint: Endpoint of the model
+    // - model: Model name of the model
+    // - requires_key: Whether the model requires an API key
+    // - key_id: The identifier of the API key. Use the same identifier for models that can be accessed with the same key.
+    // - key_get_link: Link to get an API key
+    // - key_get_description: Description of pricing and how to get an API key
+    // - api_format: The API format of the model. Can be "openai" or "gemini". Default is "openai".
+    // - extraParams: Extra parameters to be passed to the model. This is a JSON object.
+    property var models: Config.options.policies.ai === 2 ? {} : {
+        "gemini-2.5-flash": aiModelComponent.createObject(this, {
+            "name": "Gemini 2.5 Flash",
+            "icon": "google-gemini-symbolic",
+            "description": Translation.tr("Online | Google's model\nNewer model that's slower than its predecessor but should deliver higher quality answers"),
+            "homepage": "https://aistudio.google.com",
+            "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent",
+            "model": "gemini-2.5-flash",
+            "requires_key": true,
+            "key_id": "gemini",
+            "key_get_link": "https://aistudio.google.com/app/apikey",
+            "key_get_description": Translation.tr("**Pricing**: free. Data used for training.\n\n**Instructions**: Log into Google account, allow AI Studio to create Google Cloud project or whatever it asks, go back and click Get API key"),
+            "api_format": "gemini",
+        }),
+        "gemini-3-flash": aiModelComponent.createObject(this, {
+            "name": "Gemini 3 Flash",
+            "icon": "google-gemini-symbolic",
+            "description": Translation.tr("Online | Google's model\nPro-level intelligence at the speed and pricing of Flash."),
+            "homepage": "https://aistudio.google.com",
+            "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:streamGenerateContent",
+            "model": "gemini-3-flash-preview",
+            "requires_key": true,
+            "key_id": "gemini",
+            "key_get_link": "https://aistudio.google.com/app/apikey",
+            "key_get_description": Translation.tr("**Pricing**: free. Data used for training.\n\n**Instructions**: Log into Google account, allow AI Studio to create Google Cloud project or whatever it asks, go back and click Get API key"),
+            "api_format": "gemini",
+        }),
+        "mistral-medium-3": aiModelComponent.createObject(this, {
+            "name": "Mistral Medium 3",
+            "icon": "mistral-symbolic",
+            "description": Translation.tr("Online | %1's model | Delivers fast, responsive and well-formatted answers. Disadvantages: not very eager to do stuff; might make up unknown function calls").arg("Mistral"),
+            "homepage": "https://mistral.ai/news/mistral-medium-3",
+            "endpoint": "https://api.mistral.ai/v1/chat/completions",
+            "model": "mistral-medium-2505",
+            "requires_key": true,
+            "key_id": "mistral",
+            "key_get_link": "https://console.mistral.ai/api-keys",
+            "key_get_description": Translation.tr("**Instructions**: Log into Mistral account, go to Keys on the sidebar, click Create new key"),
+            "api_format": "mistral",
+        }),
     }
+    property var modelList: Object.keys(root.models)
+    property var currentModelId: Persistent.states?.ai?.model || modelList[0]
 
-    // ─── Icon & name guessing ────────────────────────────────────────────
-    function guessModelIcon(modelId) {
-        const lower = modelId.toLowerCase();
-        if (lower.includes("claude") || lower.includes("anthropic")) return "anthropic-symbolic";
-        if (lower.includes("gemini")) return "google-gemini-symbolic";
-        if (lower.includes("gpt") || lower.includes("codex") || lower.includes("openai")) return "openai-symbolic";
-        if (lower.includes("deepseek")) return "deepseek-symbolic";
-        if (lower.includes("mistral")) return "mistral-symbolic";
-        if (lower.includes("llama")) return "ollama-symbolic";
-        if (lower.includes("grok")) return "xai-symbolic";
-        return "neurology";
+    property var apiStrategies: {
+        "openai": openaiApiStrategy.createObject(this),
+        "gemini": geminiApiStrategy.createObject(this),
+        "mistral": mistralApiStrategy.createObject(this),
     }
+    property ApiStrategy currentApiStrategy: apiStrategies[models[currentModelId]?.api_format || "openai"]
 
-    function guessModelName(modelId) {
-        const parts = modelId.split("/");
-        const modelPart = parts.length > 1 ? parts[1] : parts[0];
-        return modelPart.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-    }
-
-    function ensureModel(modelId) {
-        if (!root.models[modelId]) {
-            root.models[modelId] = {
-                "name": guessModelName(modelId),
-                "icon": guessModelIcon(modelId),
-                "description": modelId,
-            };
-            if (root.modelList.indexOf(modelId) === -1) {
-                root.modelList = [...root.modelList, modelId];
-            }
+    Connections {
+        target: Config
+        function onReadyChanged() {
+            if (!Config.ready) return;
+            (Config?.options.ai?.extraModels ?? []).forEach(model => {
+                const safeModelName = root.safeModelName(model["model"]);
+                root.addModel(safeModelName, model)
+            });
         }
     }
 
-    // ─── Fetch models from CLI ───────────────────────────────────────────
-    Process {
-        id: fetchModels
-        running: false
-        command: ["bash", "-c", "opencode models < /dev/null"]
-        stdout: StdioCollector {
-            onStreamFinished: {
-                if (text.length === 0) return;
-                const lines = text.split("\n").filter(l => l.trim().length > 0);
-                let newModels = {};
-                let newModelList = [];
-                lines.forEach(modelId => {
-                    modelId = modelId.trim();
-                    if (modelId.length === 0) return;
-                    newModels[modelId] = {
-                        "name": root.guessModelName(modelId),
-                        "icon": root.guessModelIcon(modelId),
-                        "description": modelId,
-                    };
-                    newModelList.push(modelId);
-                });
-                root.models = newModels;
-                root.modelList = newModelList;
+    property string requestScriptFilePath: "/tmp/quickshell/ai/request.sh"
+    property string pendingFilePath: ""
 
-                if (!root.currentModelId || root.modelList.indexOf(root.currentModelId) === -1) {
-                    const preferred = [
-                        "github-copilot/claude-sonnet-4",
-                        "github-copilot/claude-opus-4",
-                        "github-copilot/gpt-4o",
-                        "github-copilot/gemini-2.5-pro",
-                    ];
-                    let found = false;
-                    for (let i = 0; i < preferred.length; i++) {
-                        if (root.modelList.indexOf(preferred[i]) !== -1) {
-                            root.currentModelId = preferred[i];
-                            found = true;
-                            break;
-                        }
-                    }
-                    if (!found && root.modelList.length > 0) {
-                        root.currentModelId = root.modelList[0];
-                    }
+    Component.onCompleted: {
+        setModel(currentModelId, false, false); // Do necessary setup for model
+    }
+
+    function guessModelLogo(model) {
+        if (model.includes("llama")) return "ollama-symbolic";
+        if (model.includes("gemma")) return "google-gemini-symbolic";
+        if (model.includes("deepseek")) return "deepseek-symbolic";
+        if (/^phi\d*:/i.test(model)) return "microsoft-symbolic";
+        return "ollama-symbolic";
+    }
+
+    function guessModelName(model) {
+        const replaced = model.replace(/-/g, ' ').replace(/:/g, ' ');
+        let words = replaced.split(' ');
+        words[words.length - 1] = words[words.length - 1].replace(/(\d+)b$/, (_, num) => `${num}B`)
+        words = words.map((word) => {
+            return (word.charAt(0).toUpperCase() + word.slice(1))
+        });
+        if (words[words.length - 1] === "Latest") words.pop();
+        else words[words.length - 1] = `(${words[words.length - 1]})`; // Surround the last word with square brackets
+        const result = words.join(' ');
+        return result;
+    }
+
+    function addModel(modelName, data) {
+        root.models[modelName] = aiModelComponent.createObject(this, data);
+    }
+
+    Process {
+        id: getOllamaModels
+        running: true
+        command: ["bash", "-c", `${Directories.scriptPath}/ai/show-installed-ollama-models.sh`.replace(/file:\/\//, "")]
+        stdout: SplitParser {
+            onRead: data => {
+                try {
+                    if (data.length === 0) return;
+                    const dataJson = JSON.parse(data);
+                    root.modelList = [...root.modelList, ...dataJson];
+                    dataJson.forEach(model => {
+                        const safeModelName = root.safeModelName(model);
+                        root.addModel(safeModelName, {
+                            "name": guessModelName(model),
+                            "icon": guessModelLogo(model),
+                            "description": Translation.tr("Local Ollama model | %1").arg(model),
+                            "homepage": `https://ollama.com/library/${model}`,
+                            "endpoint": "http://localhost:11434/v1/chat/completions",
+                            "model": model,
+                            "requires_key": false,
+                        })
+                    });
+
+                    root.modelList = Object.keys(root.models);
+
+                } catch (e) {
+                    console.log("Could not fetch Ollama models:", e);
                 }
             }
         }
     }
 
-    // ─── Prompt & saved chat listing ─────────────────────────────────────
     Process {
         id: getDefaultPrompts
         running: true
@@ -239,12 +926,11 @@ Singleton {
     }
 
     function loadPrompt(filePath) {
-        promptLoader.path = "";
-        promptLoader.path = filePath;
+        promptLoader.path = "" // Unload
+        promptLoader.path = filePath; // Load
         promptLoader.reload();
     }
 
-    // ─── Message management ──────────────────────────────────────────────
     function addMessage(message, role) {
         if (message.length === 0) return;
         const aiMessage = aiMessageComponent.createObject(root, {
@@ -267,733 +953,259 @@ Singleton {
         delete root.messageByID[id];
     }
 
+    function addApiKeyAdvice(model) {
+        root.addMessage(
+            Translation.tr('To set an API key, pass it with the %4 command\n\nTo view the key, pass "get" with the command<br/>\n\n### For %1:\n\n**Link**: %2\n\n%3')
+                .arg(model.name).arg(model.key_get_link).arg(model.key_get_description ?? Translation.tr("<i>No further instruction provided</i>")).arg("/key"), 
+            Ai.interfaceRole
+        );
+    }
+
     function getModel() {
-        root.ensureModel(root.currentModelId || "unknown");
-        return root.models[root.currentModelId] ?? { name: "No model", icon: "neurology", description: "" };
+        return models[currentModelId];
     }
 
     function setModel(modelId, feedback = true, setPersistentState = true) {
-        if (!modelId) modelId = "";
-        modelId = modelId.trim();
-        if (root.modelList.indexOf(modelId) !== -1) {
-            root.currentModelId = modelId;
+        if (!modelId) modelId = ""
+        modelId = modelId.toLowerCase()
+        if (modelList.indexOf(modelId) !== -1) {
+            const model = models[modelId]
+            // See if policy prevents online models
+            if (Config.options.policies.ai === 2 && !model.endpoint.includes("localhost")) {
+                root.addMessage(
+                    Translation.tr("Online models disallowed\n\nControlled by `policies.ai` config option"),
+                    root.interfaceRole
+                );
+                return;
+            }
             if (setPersistentState) Persistent.states.ai.model = modelId;
-            if (feedback) root.addMessage(Translation.tr("Model set to **%1**").arg(root.models[modelId].name), root.interfaceRole);
-            return;
+            if (feedback) root.addMessage(Translation.tr("Model set to %1").arg(model.name), root.interfaceRole);
+            if (model.requires_key) {
+                // If key not there show advice
+                if (root.apiKeysLoaded && (!root.apiKeys[model.key_id] || root.apiKeys[model.key_id].length === 0)) {
+                    root.addApiKeyAdvice(model)
+                }
+            }
+            // Default to no tools for Ollama models - user can enable with /tool when needed
+            if (model.endpoint.includes("localhost")) {
+                root.currentTool = "none";
+            }
+        } else {
+            if (feedback) root.addMessage(Translation.tr("Invalid model. Supported: \n```\n") + modelList.join("\n```\n```\n"), Ai.interfaceRole) + "\n```"
         }
-        const lower = modelId.toLowerCase();
-        const matches = root.modelList.filter(m => m.toLowerCase().includes(lower));
-        if (matches.length === 1) {
-            root.currentModelId = matches[0];
-            if (setPersistentState) Persistent.states.ai.model = matches[0];
-            if (feedback) root.addMessage(Translation.tr("Model set to **%1**").arg(root.models[matches[0]].name), root.interfaceRole);
-            return;
-        }
-        if (matches.length > 1) {
-            if (feedback) root.addMessage(Translation.tr("Multiple matches:\n```\n%1\n```").arg(matches.join("\n")), root.interfaceRole);
-            return;
-        }
-        if (feedback) root.addMessage(Translation.tr("Model not found. Available models:\n```\n%1\n```").arg(root.modelList.join("\n")), root.interfaceRole);
     }
 
-    function getTemperature() { return root.temperature; }
+    function setTool(tool) {
+        if (!root.tools[models[currentModelId]?.api_format] || !(tool in root.tools[models[currentModelId]?.api_format])) {
+            root.addMessage(Translation.tr("Invalid tool. Supported tools:\n- %1").arg(root.availableTools.join("\n- ")), root.interfaceRole);
+            return false;
+        }
+        Config.options.ai.tool = tool;
+        return true;
+    }
+    
+    function getTemperature() {
+        return root.temperature;
+    }
 
     function setTemperature(value) {
-        if (isNaN(value) || value < 0 || value > 2) {
-            root.addMessage(Translation.tr("Temperature must be between 0 and 2"), root.interfaceRole);
+        if (value == NaN || value < 0 || value > 2) {
+            root.addMessage(Translation.tr("Temperature must be between 0 and 2"), Ai.interfaceRole);
             return;
         }
         Persistent.states.ai.temperature = value;
         root.temperature = value;
-        root.addMessage(Translation.tr("Temperature set to %1").arg(value), root.interfaceRole);
+        root.addMessage(Translation.tr("Temperature set to %1").arg(value), Ai.interfaceRole);
+    }
+
+    function setApiKey(key) {
+        const model = models[currentModelId];
+        if (!model.requires_key) {
+            root.addMessage(Translation.tr("%1 does not require an API key").arg(model.name), Ai.interfaceRole);
+            return;
+        }
+        if (!key || key.length === 0) {
+            const model = models[currentModelId];
+            root.addApiKeyAdvice(model)
+            return;
+        }
+        KeyringStorage.setNestedField(["apiKeys", model.key_id], key.trim());
+        root.addMessage(Translation.tr("API key set for %1").arg(model.name), Ai.interfaceRole);
+    }
+
+    function printApiKey() {
+        const model = models[currentModelId];
+        if (model.requires_key) {
+            const key = root.apiKeys[model.key_id];
+            if (key) {
+                root.addMessage(Translation.tr("API key:\n\n```txt\n%1\n```").arg(key), Ai.interfaceRole);
+            } else {
+                root.addMessage(Translation.tr("No API key set for %1").arg(model.name), Ai.interfaceRole);
+            }
+        } else {
+            root.addMessage(Translation.tr("%1 does not require an API key").arg(model.name), Ai.interfaceRole);
+        }
     }
 
     function printTemperature() {
-        root.addMessage(Translation.tr("Temperature: %1").arg(root.temperature), root.interfaceRole);
+        root.addMessage(Translation.tr("Temperature: %1").arg(root.temperature), Ai.interfaceRole);
     }
 
     function clearMessages() {
         root.messageIDs = [];
         root.messageByID = ({});
-        root.sessionId = "";
-        root.sessionTitle = "";
-        root.currentAssistantMsgId = "";
-        root.currentMessage = null;
-        root.currentReasoning = "";
-        root.toolParts = ({});
-        root.pendingPermissions = [];
         root.tokenCount.input = -1;
         root.tokenCount.output = -1;
         root.tokenCount.total = -1;
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // SSE LISTENER — Long-running curl for Server-Sent Events
-    // Receives all real-time events (text deltas, tool updates, etc.)
-    // ═══════════════════════════════════════════════════════════════════════
-    Timer {
-        id: sseReconnectTimer
-        interval: 3000
-        repeat: false
-        onTriggered: {
-            if (!sseListener.running) {
-                sseListener.running = true;
-            }
-        }
+    FileView {
+        id: requesterScriptFile
     }
 
     Process {
-        id: sseListener
-        running: false
-        command: ["curl", "-sN", root.apiBase + "/event"]
+        id: requester
+        property list<string> baseCommand: ["bash"]
+        property AiMessageData message
+        property ApiStrategy currentStrategy
 
-        stdout: SplitParser {
-            splitMarker: "\n\n"
-            onRead: data => {
-                // SSE format: "data: {...}" — strip prefix and parse
-                const lines = data.split("\n");
-                for (let i = 0; i < lines.length; i++) {
-                    let line = lines[i].trim();
-                    if (!line.startsWith("data: ")) continue;
-                    const jsonStr = line.substring(6); // strip "data: "
-                    try {
-                        const event = JSON.parse(jsonStr);
-                        root.handleSSEEvent(event);
-                    } catch (e) {
-                        console.log("[Ai] SSE parse error:", e, "data:", jsonStr.substring(0, 200));
-                    }
-                }
+        function markDone() {
+            requester.message.done = true;
+            if (root.postResponseHook) {
+                root.postResponseHook();
+                root.postResponseHook = null; // Reset hook after use
             }
+            root.saveChat("lastSession")
+            root.responseFinished()
         }
 
-        onExited: (exitCode, exitStatus) => {
-            root.serverAvailable = false;
-            sseReconnectTimer.interval = 3000;
-            sseReconnectTimer.start();
-        }
-    }
+        function makeRequest() {
+            const model = models[currentModelId];
 
-    // ─── SSE Event Router ────────────────────────────────────────────────
-    function handleSSEEvent(event) {
-        const type = event.type;
-        const props = event.properties;
+            // Fetch API keys if needed
+            if (model?.requires_key && !KeyringStorage.loaded) KeyringStorage.fetchKeyringData();
+            
+            requester.currentStrategy = root.currentApiStrategy;
+            requester.currentStrategy.reset(); // Reset strategy state
 
-        if (type === "server.connected") {
-            root.serverAvailable = true;
-            return;
-        }
-        if (type === "server.heartbeat") return;
+            /* Put API key in environment variable */
+            if (model.requires_key) requester.environment[`${root.apiKeyEnvVarName}`] = root.apiKeys ? (root.apiKeys[model.key_id] ?? "") : ""
 
-        // Filter events to our session only
-        const eventSessionId = props?.sessionID ?? props?.info?.sessionID ?? "";
-        if (eventSessionId && root.sessionId && eventSessionId !== root.sessionId) return;
+            /* Build endpoint, request data */
+            const endpoint = root.currentApiStrategy.buildEndpoint(model);
+            const messageArray = root.messageIDs.map(id => root.messageByID[id]);
+            const filteredMessageArray = messageArray.filter(message => message.role !== Ai.interfaceRole);
+            const data = root.currentApiStrategy.buildRequestData(model, filteredMessageArray, root.systemPrompt, root.temperature, model.endpoint.includes("localhost") ? [] : root.tools[model.api_format][root.currentTool], root.pendingFilePath);
 
-        switch (type) {
-        case "message.part.delta":
-            handlePartDelta(props);
-            break;
-        case "message.part.updated":
-            handlePartUpdated(props);
-            break;
-        case "message.updated":
-            handleMessageUpdated(props);
-            break;
-        case "session.status":
-            handleSessionStatus(props);
-            break;
-        case "session.idle":
-            handleSessionIdle(props);
-            break;
-        case "session.updated":
-            handleSessionUpdated(props);
-            break;
-        case "session.error":
-            handleSessionError(props);
-            break;
-        case "permission.asked":
-            handlePermissionAsked(props);
-            break;
-        case "permission.replied":
-            handlePermissionReplied(props);
-            break;
-        default:
-            // session.diff, session.compacted, file.edited, etc.
-            break;
-        }
-    }
-
-    // ─── Handle text deltas (TOKEN-BY-TOKEN STREAMING) ───────────────────
-    function handlePartDelta(props) {
-        if (!root.currentMessage) return;
-
-        if (props.field === "reasoning") {
-            const delta = props.delta ?? "";
-            if (delta.length === 0) return;
-            // Buffer reasoning content and show thinking indicator
-            root.currentReasoning += delta;
-            root.currentMessage.thinking = true;
-            return;
-        }
-
-        if (props.field === "text") {
-            const delta = props.delta ?? "";
-            if (delta.length === 0) return;
-
-            // If we have buffered reasoning, flush it as a <think> block first
-            if (root.currentReasoning.length > 0) {
-                root.currentMessage.rawContent += "<think>\n" + root.currentReasoning + "\n</think>\n\n";
-                root.currentReasoning = "";
+            let requestHeaders = {
+                "Content-Type": "application/json",
             }
-
-            // Streaming text — append delta to message content
-            if (root.currentMessage.thinking) root.currentMessage.thinking = false;
-            root.currentMessage.rawContent += delta;
-            root.currentMessage.content = root.currentMessage.rawContent;
-        }
-    }
-
-    // ─── Handle part lifecycle (start, text final, tool, step-finish) ────
-    function handlePartUpdated(props) {
-        const part = props.part;
-        if (!part || !root.currentMessage) return;
-
-        switch (part.type) {
-        case "step-start":
-            // Step is starting — show thinking indicator
-            if (root.currentMessage && !root.currentMessage.done) {
-                root.currentMessage.thinking = true;
-            }
-            break;
-
-        case "text":
-            // Text part update — could be initial (empty) or final (full text)
-            // We rely on deltas for streaming, so this is mostly confirmation
-            break;
-
-        case "reasoning":
-            // Reasoning/thinking content
-            break;
-
-        case "tool":
-            handleToolPart(part);
-            break;
-
-        case "subtask":
-            handleSubtaskPart(part);
-            break;
-
-        case "step-finish":
-            // Step finished — capture token counts
-            const tokens = part.tokens;
-            if (tokens) {
-                root.tokenCount.input = tokens.input ?? -1;
-                root.tokenCount.output = tokens.output ?? -1;
-                root.tokenCount.total = tokens.total ?? -1;
-            }
-            break;
-        }
-    }
-
-    // ─── Handle tool use lifecycle ───────────────────────────────────────
-    function handleToolPart(part) {
-        if (!root.currentMessage) return;
-        const partId = part.id;
-        const tool = part.tool ?? "tool";
-        const state = part.state ?? {};
-        const status = state.status ?? "pending";
-
-        if (status === "pending" || status === "running") {
-            // Flush any buffered reasoning before tool starts
-            if (root.currentReasoning.length > 0) {
-                root.currentMessage.rawContent += "<think>\n" + root.currentReasoning + "\n</think>\n\n";
-                root.currentMessage.content = root.currentMessage.rawContent;
-                root.currentReasoning = "";
-            }
-            // Tool is starting/running — show pending indicator
-            root.currentMessage.functionPending = true;
-            root.currentMessage.functionName = state.title ?? tool;
-            // Track this tool part
-            root.toolParts[partId] = { tool: tool, status: status };
-        }
-        else if (status === "completed" || status === "error") {
-            // Tool finished — clear pending, append <tool> tag to content
-            root.currentMessage.functionPending = false;
-            root.currentMessage.functionName = "";
-
-            const title = state.title ?? tool;
-            const output = (status === "completed") ? (state.output ?? "") : (state.error ?? "Error");
-            const input = state.input ? JSON.stringify(state.input) : "";
-
-            const toolTag = `\n\n<tool name="${tool}" title="${title.replace(/"/g, '&quot;')}" status="${status}"${input ? ` input="${input.replace(/"/g, '&quot;').substring(0, 500)}"` : ""}>${output ? output.substring(0, 2000) : ""}</tool>\n\n`;
-
-            if (root.currentMessage.thinking) root.currentMessage.thinking = false;
-            root.currentMessage.rawContent += toolTag;
-            root.currentMessage.content = root.currentMessage.rawContent;
-
-            // Clean up tracking
-            delete root.toolParts[partId];
-        }
-    }
-
-    // ─── Handle subtask parts (subagent invocations) ────────────────────
-    function handleSubtaskPart(part) {
-        if (!root.currentMessage) return;
-
-        // Flush any buffered reasoning before subtask
-        if (root.currentReasoning.length > 0) {
-            root.currentMessage.rawContent += "<think>\n" + root.currentReasoning + "\n</think>\n\n";
-            root.currentMessage.content = root.currentMessage.rawContent;
-            root.currentReasoning = "";
-        }
-
-        const agent = part.agent ?? "general";
-        const description = part.description ?? "";
-        const prompt = part.prompt ?? "";
-        const sessionID = part.sessionID ?? "";
-
-        // Render subtask as a tool tag with agent metadata
-        const input = JSON.stringify({ agent: agent, description: description, prompt: prompt.substring(0, 500), sessionID: sessionID });
-        const toolTag = `\n\n<tool name="task" title="${description.replace(/"/g, '&quot;')}" status="running" input="${input.replace(/"/g, '&quot;')}">${agent} agent: ${description}</tool>\n\n`;
-
-        if (root.currentMessage.thinking) root.currentMessage.thinking = false;
-        root.currentMessage.rawContent += toolTag;
-        root.currentMessage.content = root.currentMessage.rawContent;
-    }
-
-    // ─── Handle message-level updates ────────────────────────────────────
-    function handleMessageUpdated(props) {
-        const info = props.info;
-        if (!info) return;
-
-        // We only care about assistant messages for our session
-        if (info.role !== "assistant") return;
-        if (info.sessionID !== root.sessionId) return;
-
-        // Capture model info from the response
-        if (info.modelID && info.providerID) {
-            const fullModelId = info.providerID + "/" + info.modelID;
-            root.ensureModel(fullModelId);
-            if (root.currentMessage) {
-                root.currentMessage.model = fullModelId;
-            }
-        }
-
-        // If message has completed time, it's done
-        if (info.time?.completed) {
-            if (root.currentMessage && !root.currentMessage.done) {
-                finishCurrentMessage();
-            }
-            return;
-        }
-
-        // NEW assistant message creation (no completed time) — this handles
-        // multi-message tool continuation. After a tool call finishes and the
-        // model sends a follow-up response, OpenCode creates a new assistant
-        // message with a different ID. We need to create a new placeholder.
-        if (!info.time?.completed && root.currentMessage === null && root.sessionBusy) {
-            const modelId = root.currentModelId;
-            root.ensureModel(modelId || "unknown");
-            const assistantMsg = root.aiMessageComponent.createObject(root, {
+            
+            /* Create local message object */
+            requester.message = root.aiMessageComponent.createObject(root, {
                 "role": "assistant",
-                "model": modelId,
+                "model": currentModelId,
                 "content": "",
                 "rawContent": "",
                 "thinking": true,
                 "done": false,
             });
-            const id = idForMessage(assistantMsg);
+            const id = idForMessage(requester.message);
             root.messageIDs = [...root.messageIDs, id];
-            root.messageByID[id] = assistantMsg;
-            root.currentMessage = assistantMsg;
-            root.currentAssistantMsgId = id;
+            root.messageByID[id] = requester.message;
 
-            // Apply model info if available
-            if (info.modelID && info.providerID) {
-                assistantMsg.model = info.providerID + "/" + info.modelID;
-            }
-        }
+            /* Build header string for curl */ 
+            let headerString = Object.entries(requestHeaders)
+                .filter(([k, v]) => v && v.length > 0)
+                .map(([k, v]) => `-H '${k}: ${v}'`)
+                .join(' ');
 
-        // Update token counts from final message update
-        if (info.tokens) {
-            root.tokenCount.input = info.tokens.input ?? -1;
-            root.tokenCount.output = info.tokens.output ?? -1;
-            root.tokenCount.total = info.tokens.total ?? -1;
-        }
-    }
+            // console.log("Request headers: ", JSON.stringify(requestHeaders));
+            // console.log("Header string: ", headerString);
 
-    // ─── Handle session status changes ───────────────────────────────────
-    function handleSessionStatus(props) {
-        if (props.sessionID !== root.sessionId) return;
-        const status = props.status;
-        if (status.type === "busy") {
-            root.sessionBusy = true;
-        } else if (status.type === "idle") {
-            root.sessionBusy = false;
-        }
-    }
+            /* Get authorization header from strategy */
+            const authHeader = requester.currentStrategy.buildAuthorizationHeader(root.apiKeyEnvVarName);
+            
+            /* Script shebang */
+            const scriptShebang = "#!/usr/bin/env bash\n";
 
-    // ─── Handle session idle — response fully complete ───────────────────
-    function handleSessionIdle(props) {
-        if (props.sessionID !== root.sessionId) return;
-        root.sessionBusy = false;
-        if (root.currentMessage && !root.currentMessage.done) {
-            finishCurrentMessage();
-        }
-    }
-
-    // ─── Handle session updates (title, etc.) ────────────────────────────
-    function handleSessionUpdated(props) {
-        const info = props.info ?? props;
-        if (!info) return;
-        const sid = info.id ?? info.sessionID ?? "";
-        if (sid && root.sessionId && sid !== root.sessionId) return;
-        if (info.title && info.title.length > 0) {
-            root.sessionTitle = info.title;
-        }
-    }
-
-    // ─── Handle session errors ───────────────────────────────────────────
-    function handleSessionError(props) {
-        const sid = props.sessionID ?? "";
-        if (sid && root.sessionId && sid !== root.sessionId) return;
-        const error = props.error ?? props.message ?? "Unknown error";
-        console.log("[Ai] Session error:", JSON.stringify(props));
-        root.addMessage("**Error:** " + error, root.interfaceRole);
-        if (root.currentMessage && !root.currentMessage.done) {
-            finishCurrentMessage();
-        }
-    }
-
-    // ─── Handle permission requests ─────────────────────────────────────
-    // permission.asked event props: { id, sessionID, permission, patterns, metadata, always, tool: { messageID, callID } }
-    // permission types: "edit", "bash", "webfetch", "doom_loop", "external_directory"
-    function handlePermissionAsked(props) {
-        // Build a user-friendly title from the permission data
-        const permType = props.permission ?? "unknown";
-        const metadata = props.metadata ?? {};
-        let title = permType;
-        switch (permType) {
-        case "edit":
-            title = "Edit file: " + (metadata.filepath ?? metadata.file ?? "unknown");
-            break;
-        case "bash":
-            title = "Run command: " + (metadata.command ?? "unknown");
-            break;
-        case "webfetch":
-            title = "Fetch URL: " + (metadata.url ?? "unknown");
-            break;
-        case "external_directory":
-            title = "Access directory: " + (metadata.parentDir ?? metadata.filepath ?? "unknown");
-            break;
-        case "doom_loop":
-            title = "Agent retry loop detected";
-            break;
-        default:
-            title = permType;
-        }
-
-        const permObj = {
-            id: props.id,
-            type: permType,
-            sessionID: props.sessionID,
-            title: title,
-            patterns: props.patterns ?? [],
-            metadata: metadata,
-            tool: props.tool ?? {},
-        };
-
-        const existing = root.pendingPermissions.findIndex(p => p.id === props.id);
-        if (existing >= 0) {
-            let updated = root.pendingPermissions.slice();
-            updated[existing] = permObj;
-            root.pendingPermissions = updated;
-        } else {
-            root.pendingPermissions = root.pendingPermissions.concat([permObj]);
-        }
-    }
-
-    function handlePermissionReplied(props) {
-        // props: { sessionID, requestID, reply }
-        root.pendingPermissions = root.pendingPermissions.filter(p => p.id !== props.requestID);
-    }
-
-    function respondToPermission(permissionId, response) {
-        // response: "once" | "always" | "reject"
-        permissionResponder.send(root.sessionId, permissionId, response);
-        // Optimistically remove from pending list
-        root.pendingPermissions = root.pendingPermissions.filter(p => p.id !== permissionId);
-    }
-
-    // ─── Finish current assistant message ────────────────────────────────
-    function finishCurrentMessage() {
-        if (!root.currentMessage) return;
-
-        // Flush any remaining buffered reasoning
-        if (root.currentReasoning.length > 0) {
-            root.currentMessage.rawContent += "<think>\n" + root.currentReasoning + "\n</think>\n\n";
-            root.currentMessage.content = root.currentMessage.rawContent;
-            root.currentReasoning = "";
-        }
-
-        // Desktop notification when sidebar is closed
-        if (!GlobalStates.sidebarLeftOpen) {
-            const preview = root.currentMessage.rawContent
-                .replace(/<think>[\s\S]*?<\/think>/g, "")
-                .replace(/<tool[^>]*>[\s\S]*?<\/tool>/g, "")
-                .trim().substring(0, 200);
-            const title = root.sessionTitle || "OpenCode";
-            if (preview.length > 0) {
-                Quickshell.execDetached(["notify-send", title, preview, "-a", "Shell"]);
-            }
-        }
-
-        root.currentMessage.thinking = false;
-        root.currentMessage.functionPending = false;
-        root.currentMessage.done = true;
-        root.currentAssistantMsgId = "";
-        root.currentMessage = null;
-        root.toolParts = ({});
-
-        if (root.postResponseHook) {
-            root.postResponseHook();
-            root.postResponseHook = null;
-        }
-        root.saveChat("lastSession");
-        root.responseFinished();
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // SESSION CREATOR — POST /session
-    // ═══════════════════════════════════════════════════════════════════════
-    Process {
-        id: sessionCreator
-        running: false
-        property string pendingUserMessage: ""
-        command: ["curl", "-s", "-X", "POST",
-                  "-H", "Content-Type: application/json",
-                  "-d", "{}",
-                  root.apiBase + "/session"]
-
-        stdout: StdioCollector {
-            onStreamFinished: {
-                if (text.length === 0) return;
-                try {
-                    const session = JSON.parse(text);
-                    root.sessionId = session.id;
-                    // Now send the pending message
-                    if (sessionCreator.pendingUserMessage.length > 0) {
-                        const msg = sessionCreator.pendingUserMessage;
-                        sessionCreator.pendingUserMessage = "";
-                        root.doSendMessage(msg);
-                    }
-                } catch (e) {
-                    console.log("[Ai] Session create error:", e, text);
-                    root.addMessage("**Error:** Could not create session. Is `opencode serve` running?", root.interfaceRole);
-                }
-            }
-        }
-
-        onExited: (exitCode, exitStatus) => {
-            if (exitCode !== 0) {
-                console.log("[Ai] Session create process failed, code:", exitCode);
-                root.addMessage("**Error:** Could not connect to OpenCode server. Is `opencode serve --port 4096` running?", root.interfaceRole);
-            }
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // MESSAGE SENDER — POST /session/{id}/prompt_async
-    // Returns 204 immediately; response streams via SSE
-    // ═══════════════════════════════════════════════════════════════════════
-    Process {
-        id: messageSender
-        running: false
-
-        function send(sessionId, userText) {
-            // Build JSON body
-            const modelId = root.currentModelId;
-            let body = { parts: [{ type: "text", text: userText }] };
-
-            // Include agent selection (build or plan)
-            body.agent = root.currentAgent;
-
-            // Include model selection
-            if (modelId && modelId.includes("/")) {
-                const slash = modelId.indexOf("/");
-                body.model = {
-                    providerID: modelId.substring(0, slash),
-                    modelID: modelId.substring(slash + 1),
-                };
-            }
-
-            // File attachment
+            /* Create extra setup when there's an attached file */
+            let scriptFileSetupContent = ""
             if (root.pendingFilePath && root.pendingFilePath.length > 0) {
-                body.parts.push({
-                    type: "file",
-                    mime: "application/octet-stream",
-                    url: "file://" + root.pendingFilePath,
-                });
+                requester.message.localFilePath = root.pendingFilePath;
+                scriptFileSetupContent = requester.currentStrategy.buildScriptFileSetup(root.pendingFilePath);
+                root.pendingFilePath = ""
             }
 
-            const jsonBody = JSON.stringify(body);
-            const url = root.apiBase + "/session/" + sessionId + "/prompt_async";
-
-            messageSender.running = false;
-            messageSender.command = [
-                "curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
-                "-X", "POST",
-                "-H", "Content-Type: application/json",
-                "-d", jsonBody,
-                url
-            ];
-            messageSender.running = true;
+            /* Create command string */
+            let scriptRequestContent = ""
+            scriptRequestContent += `stdbuf -oL curl --no-buffer "${endpoint}"`
+                + ` ${headerString}`
+                + (authHeader ? ` ${authHeader}` : "")
+                + ` --data '${CF.StringUtils.shellSingleQuoteEscape(JSON.stringify(data))}'`
+                + "\n"
+            
+            /* Send the request */
+            const scriptContent = requester.currentStrategy.finalizeScriptContent(scriptShebang + scriptFileSetupContent + scriptRequestContent)
+            const shellScriptPath = CF.FileUtils.trimFileProtocol(root.requestScriptFilePath)
+            requesterScriptFile.path = Qt.resolvedUrl(shellScriptPath)
+            requesterScriptFile.setText(scriptContent)
+            requester.command = baseCommand.concat([shellScriptPath]);
+            requester.running = true
         }
 
-        stdout: StdioCollector {
-            onStreamFinished: {
-                const code = text.trim();
-                if (code === "204") {
-                    // Message accepted
-                } else {
-                    if (code === "404") {
-                        root.addMessage("**Error:** Session not found. Try `/clear` to start a new session.", root.interfaceRole);
-                    } else if (code === "400") {
-                        root.addMessage("**Error:** Bad request (400). Check message format.", root.interfaceRole);
-                    } else if (code === "000") {
-                        root.addMessage("**Error:** Could not connect to OpenCode server. Is `opencode serve --port 4096` running?", root.interfaceRole);
+        stdout: SplitParser {
+            onRead: data => {
+                if (data.length === 0) return;
+                if (requester.message.thinking) requester.message.thinking = false;
+                // console.log("[Ai] Raw response line: ", data);
+
+                // Handle response line
+                try {
+                    const result = requester.currentStrategy.parseResponseLine(data, requester.message);
+                    // console.log("[Ai] Parsed response result: ", JSON.stringify(result, null, 2));
+
+                    if (result.functionCall) {
+                        requester.message.functionCall = result.functionCall;
+                        root.handleFunctionCall(result.functionCall.name, result.functionCall.args, requester.message);
                     }
+                    if (result.tokenUsage) {
+                        root.tokenCount.input = result.tokenUsage.input;
+                        root.tokenCount.output = result.tokenUsage.output;
+                        root.tokenCount.total = result.tokenUsage.total;
+                    }
+                    if (result.finished) {
+                        requester.markDone();
+                    }
+                    
+                } catch (e) {
+                    console.log("[AI] Could not parse response: ", e);
+                    requester.message.rawContent += data;
+                    requester.message.content += data;
                 }
             }
         }
 
         onExited: (exitCode, exitStatus) => {
-            if (exitCode !== 0) {
-                console.log("[Ai] Message sender failed, code:", exitCode);
+            const result = requester.currentStrategy.onRequestFinished(requester.message);
+            
+            if (result.finished) {
+                requester.markDone();
+            } else if (!requester.message.done) {
+                requester.markDone();
+            }
+
+            // Handle error responses
+            if (requester.message.content.includes("API key not valid")) {
+                root.addApiKeyAdvice(models[requester.message.model]);
             }
         }
     }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // ABORT — POST /session/{id}/abort
-    // ═══════════════════════════════════════════════════════════════════════
-    Process {
-        id: abortProcess
-        running: false
-
-        stdout: StdioCollector {
-            onStreamFinished: {
-                const code = text.trim();
-                if (code !== "200") {
-                    console.log("[Ai] Abort error, HTTP:", code);
-                }
-            }
-        }
-    }
-
-    function abortSession() {
-        if (!root.sessionId || root.sessionId.length === 0) return;
-        abortProcess.running = false;
-        abortProcess.command = [
-            "curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
-            "-X", "POST",
-            root.apiBase + "/session/" + root.sessionId + "/abort"
-        ];
-        abortProcess.running = true;
-
-        // Finish the current message immediately on the UI side
-        if (root.currentMessage && !root.currentMessage.done) {
-            finishCurrentMessage();
-        }
-        root.sessionBusy = false;
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // PERMISSION RESPONDER — POST /session/{id}/permissions/{permissionID}
-    // ═══════════════════════════════════════════════════════════════════════
-    Process {
-        id: permissionResponder
-        running: false
-
-        function send(sessionId, permissionId, response) {
-            const body = JSON.stringify({ response: response });
-            const url = root.apiBase + "/session/" + sessionId + "/permissions/" + permissionId;
-
-            permissionResponder.running = false;
-            permissionResponder.command = [
-                "curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
-                "-X", "POST",
-                "-H", "Content-Type: application/json",
-                "-d", body,
-                url
-            ];
-            permissionResponder.running = true;
-        }
-
-        stdout: StdioCollector {
-            onStreamFinished: {
-                const code = text.trim();
-                if (code !== "200") {
-                    console.log("[Ai] Permission response error, HTTP:", code);
-                }
-            }
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // PUBLIC API
-    // ═══════════════════════════════════════════════════════════════════════
 
     function sendUserMessage(message) {
         if (message.length === 0) return;
-
-        // Create user message with file attachment if present
-        const userMsg = aiMessageComponent.createObject(root, {
-            "role": "user",
-            "content": message,
-            "rawContent": message,
-            "thinking": false,
-            "done": true,
-            "localFilePath": root.pendingFilePath || "",
-        });
-        const uid = idForMessage(userMsg);
-        root.messageIDs = [...root.messageIDs, uid];
-        root.messageByID[uid] = userMsg;
-
-        if (!root.sessionId || root.sessionId.length === 0) {
-            // Need to create a session first
-            sessionCreator.pendingUserMessage = message;
-            sessionCreator.running = false;
-            sessionCreator.running = true;
-        } else {
-            root.doSendMessage(message);
-        }
-    }
-
-    function doSendMessage(message) {
-        const modelId = root.currentModelId;
-        root.ensureModel(modelId || "unknown");
-
-        // Create assistant message placeholder
-        const assistantMsg = root.aiMessageComponent.createObject(root, {
-            "role": "assistant",
-            "model": modelId,
-            "content": "",
-            "rawContent": "",
-            "thinking": true,
-            "done": false,
-        });
-        const id = idForMessage(assistantMsg);
-        root.messageIDs = [...root.messageIDs, id];
-        root.messageByID[id] = assistantMsg;
-
-        root.currentMessage = assistantMsg;
-        root.currentAssistantMsgId = id;
-
-        // Send via HTTP
-        messageSender.send(root.sessionId, message);
-
-        // Clear attachment after sending
-        root.pendingFilePath = "";
+        root.addMessage(message, "user");
+        requester.makeRequest();
     }
 
     function attachFile(filePath: string) {
@@ -1005,30 +1217,252 @@ Singleton {
         const id = root.messageIDs[messageIndex];
         const message = root.messageByID[id];
         if (message.role !== "assistant") return;
-
-        let userPrompt = "";
-        for (let i = messageIndex - 1; i >= 0; i--) {
-            const prevId = root.messageIDs[i];
-            const prevMsg = root.messageByID[prevId];
-            if (prevMsg.role === "user") {
-                userPrompt = prevMsg.rawContent;
-                break;
-            }
-        }
-
+        // Remove all messages after this one
         for (let i = root.messageIDs.length - 1; i >= messageIndex; i--) {
             root.removeMessage(i);
         }
+        requester.makeRequest();
+    }
 
-        if (userPrompt.length > 0) {
-            root.doSendMessage(userPrompt);
+    function createFunctionOutputMessage(name, output, includeOutputInChat = true) {
+        return aiMessageComponent.createObject(root, {
+            "role": "user",
+            "content": `[[ Output of ${name} ]]${includeOutputInChat ? ("\n\n<think>\n" + output + "\n</think>") : ""}`,
+            "rawContent": `[[ Output of ${name} ]]${includeOutputInChat ? ("\n\n<think>\n" + output + "\n</think>") : ""}`,
+            "functionName": name,
+            "functionResponse": output,
+            "thinking": false,
+            "done": true,
+            // "visibleToUser": false,
+        });
+    }
+
+    function addFunctionOutputMessage(name, output) {
+        const aiMessage = createFunctionOutputMessage(name, output);
+        const id = idForMessage(aiMessage);
+        root.messageIDs = [...root.messageIDs, id];
+        root.messageByID[id] = aiMessage;
+    }
+
+    function rejectCommand(message: AiMessageData) {
+        if (!message.functionPending) return;
+        message.functionPending = false; // User decided, no more "thinking"
+        addFunctionOutputMessage(message.functionName, Translation.tr("Command rejected by user"))
+    }
+
+    function approveCommand(message: AiMessageData) {
+        if (!message.functionPending) return;
+        message.functionPending = false; // User decided, no more "thinking"
+
+        if (message.functionName === "write_file") {
+            approveFileWrite(message);
+            return;
+        }
+        if (message.functionName === "edit_file") {
+            approveFileEdit(message);
+            return;
+        }
+
+        const responseMessage = createFunctionOutputMessage(message.functionName, "", false);
+        const id = idForMessage(responseMessage);
+        root.messageIDs = [...root.messageIDs, id];
+        root.messageByID[id] = responseMessage;
+
+        commandExecutionProc.message = responseMessage;
+        commandExecutionProc.baseMessageContent = responseMessage.content;
+        commandExecutionProc.shellCommand = message.functionCall.args.command;
+        commandExecutionProc.running = true; // Start the command execution
+    }
+
+    Process {
+        id: commandExecutionProc
+        property string shellCommand: ""
+        property AiMessageData message
+        property string baseMessageContent: ""
+        command: ["bash", "-c", shellCommand]
+        stdout: SplitParser {
+            onRead: (output) => {
+                commandExecutionProc.message.functionResponse += output + "\n\n";
+                const updatedContent = commandExecutionProc.baseMessageContent + `\n\n<think>\n<tt>${commandExecutionProc.message.functionResponse}</tt>\n</think>`;
+                commandExecutionProc.message.rawContent = updatedContent;
+                commandExecutionProc.message.content = updatedContent;
+            }
+        }
+        onExited: (exitCode, exitStatus) => {
+            commandExecutionProc.message.functionResponse += `[[ Command exited with code ${exitCode} (${exitStatus}) ]]\n`;
+            requester.makeRequest(); // Continue
         }
     }
 
-    // ─── Chat save/load ──────────────────────────────────────────────────
+    Process {
+        id: fileReadProc
+        property string filePath: ""
+        command: ["cat", filePath]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const output = fileReadProc.exitCode === 0 ? text : `Error: Could not read file (exit code ${fileReadProc.exitCode})`;
+                root.addFunctionOutputMessage("read_file", output);
+                root.requester.makeRequest();
+            }
+        }
+    }
+
+    function approveFileWrite(message: AiMessageData) {
+        if (!message.functionPending) return;
+        message.functionPending = false;
+        const args = message.functionCall.args;
+        const writeCommand = `cat > "${args.path.replace(/"/g, '\\"')}" << 'QUICKSHELL_EOF'\n${args.content}\nQUICKSHELL_EOF`;
+        fileWriteProc.message = root.createFunctionOutputMessage("write_file", "", false);
+        const id = root.idForMessage(fileWriteProc.message);
+        root.messageIDs = [...root.messageIDs, id];
+        root.messageByID[id] = fileWriteProc.message;
+        fileWriteProc.baseMessageContent = fileWriteProc.message.content;
+        fileWriteProc.shellCommand = writeCommand;
+        fileWriteProc.running = true;
+    }
+
+    function approveFileEdit(message: AiMessageData) {
+        if (!message.functionPending) return;
+        message.functionPending = false;
+        const args = message.functionCall.args;
+        const escapedOld = args.old_string.replace(/\\/g, '\\\\').replace(/\//g, '\\/').replace(/'/g, "'\\''");
+        const escapedNew = args.new_string.replace(/\\/g, '\\\\').replace(/\//g, '\\/').replace(/'/g, "'\\''");
+        const editCommand = `sed -i '0,/${escapedOld}/{s/${escapedOld}/${escapedNew}/}' "${args.path.replace(/"/g, '\\"')}"`;
+        fileEditProc.message = root.createFunctionOutputMessage("edit_file", "", false);
+        const id = root.idForMessage(fileEditProc.message);
+        root.messageIDs = [...root.messageIDs, id];
+        root.messageByID[id] = fileEditProc.message;
+        fileEditProc.baseMessageContent = fileEditProc.message.content;
+        fileEditProc.shellCommand = editCommand;
+        fileEditProc.running = true;
+    }
+
+    Process {
+        id: fileWriteProc
+        property string shellCommand: ""
+        property AiMessageData message
+        property string baseMessageContent: ""
+        command: ["bash", "-c", shellCommand]
+        stdout: SplitParser {
+            onRead: (output) => {
+                fileWriteProc.message.functionResponse += output + "\n\n";
+                const updatedContent = fileWriteProc.baseMessageContent + `\n\n<think>\n<tt>${fileWriteProc.message.functionResponse}</tt>\n</think>`;
+                fileWriteProc.message.rawContent = updatedContent;
+                fileWriteProc.message.content = updatedContent;
+            }
+        }
+        onExited: (exitCode, exitStatus) => {
+            const statusMsg = exitCode === 0 ? "File written successfully." : `Error writing file (exit code ${exitCode})`;
+            fileWriteProc.message.functionResponse += `[[ ${statusMsg} ]]\n`;
+            fileWriteProc.message.rawContent += `\n\n<think>\n${statusMsg}\n</think>`;
+            fileWriteProc.message.content = fileWriteProc.message.rawContent;
+            requester.makeRequest();
+        }
+    }
+
+    Process {
+        id: fileEditProc
+        property string shellCommand: ""
+        property AiMessageData message
+        property string baseMessageContent: ""
+        command: ["bash", "-c", shellCommand]
+        stdout: SplitParser {
+            onRead: (output) => {
+                fileEditProc.message.functionResponse += output + "\n\n";
+                const updatedContent = fileEditProc.baseMessageContent + `\n\n<think>\n<tt>${fileEditProc.message.functionResponse}</tt>\n</think>`;
+                fileEditProc.message.rawContent = updatedContent;
+                fileEditProc.message.content = updatedContent;
+            }
+        }
+        onExited: (exitCode, exitStatus) => {
+            const statusMsg = exitCode === 0 ? "File edited successfully." : `Error editing file (exit code ${exitCode})`;
+            fileEditProc.message.functionResponse += `[[ ${statusMsg} ]]\n`;
+            fileEditProc.message.rawContent += `\n\n<think>\n${statusMsg}\n</think>`;
+            fileEditProc.message.content = fileEditProc.message.rawContent;
+            requester.makeRequest();
+        }
+    }
+
+    function handleFunctionCall(name, args: var, message: AiMessageData) {
+        if (name === "switch_to_search_mode") {
+            const modelId = root.currentModelId;
+            root.currentTool = "search"
+            root.postResponseHook = () => { root.currentTool = "functions" }
+            addFunctionOutputMessage(name, Translation.tr("Switched to search mode. Continue with the user's request."))
+            requester.makeRequest();
+        } else if (name === "get_shell_config") {
+            const configJson = CF.ObjectUtils.toPlainObject(Config.options)
+            addFunctionOutputMessage(name, JSON.stringify(configJson));
+            requester.makeRequest();
+        } else if (name === "set_shell_config") {
+            if (!args.key || !args.value) {
+                addFunctionOutputMessage(name, Translation.tr("Invalid arguments. Must provide `key` and `value`."));
+                return;
+            }
+            const key = args.key;
+            const value = args.value;
+            Config.setNestedValue(key, value);
+        } else if (name === "run_shell_command") {
+            if (!args.command || args.command.length === 0) {
+                addFunctionOutputMessage(name, Translation.tr("Invalid arguments. Must provide `command`."));
+                return;
+            }
+            const contentToAppend = `\n\n**Command execution request**\n\n\`\`\`command\n${args.command}\n\`\`\``;
+            message.rawContent += contentToAppend;
+            message.content += contentToAppend;
+            message.functionPending = true; // Use thinking to indicate the command is waiting for approval
+        } else if (name === "read_file") {
+            if (!args.path || args.path.length === 0) {
+                addFunctionOutputMessage(name, Translation.tr("Invalid arguments. Must provide `path`."));
+                return;
+            }
+            const filePath = args.path;
+            if (!filePath.startsWith("/home/")) {
+                addFunctionOutputMessage(name, Translation.tr("Access denied. File operations are restricted to /home/ directory."));
+                requester.makeRequest();
+                return;
+            }
+            fileReadProc.filePath = filePath;
+            fileReadProc.running = true;
+        } else if (name === "write_file") {
+            if (!args.path || !args.content || args.path.length === 0) {
+                addFunctionOutputMessage(name, Translation.tr("Invalid arguments. Must provide `path` and `content`."));
+                return;
+            }
+            const filePath = args.path;
+            if (!filePath.startsWith("/home/")) {
+                addFunctionOutputMessage(name, Translation.tr("Access denied. File operations are restricted to /home/ directory."));
+                requester.makeRequest();
+                return;
+            }
+            const contentToAppend = `\n\n**Write file request**\n\n\`\`\`\n${args.path}\n\`\`\``;
+            message.rawContent += contentToAppend;
+            message.content += contentToAppend;
+            message.functionCall = { name: name, args: args };
+            message.functionPending = true;
+        } else if (name === "edit_file") {
+            if (!args.path || !args.old_string || !args.new_string || args.path.length === 0) {
+                addFunctionOutputMessage(name, Translation.tr("Invalid arguments. Must provide `path`, `old_string`, and `new_string`."));
+                return;
+            }
+            const filePath = args.path;
+            if (!filePath.startsWith("/home/")) {
+                addFunctionOutputMessage(name, Translation.tr("Access denied. File operations are restricted to /home/ directory."));
+                requester.makeRequest();
+                return;
+            }
+            const contentToAppend = `\n\n**Edit file request**\n\n\`\`\`\n${args.path}\n\`\`\``;
+            message.rawContent += contentToAppend;
+            message.content += contentToAppend;
+            message.functionCall = { name: name, args: args };
+            message.functionPending = true;
+        }
+        else root.addMessage(Translation.tr("Unknown function call: %1").arg(name), "assistant");
+    }
+
     function chatToJson() {
         return root.messageIDs.map(id => {
-            const message = root.messageByID[id];
+            const message = root.messageByID[id]
             return ({
                 "role": message.role,
                 "rawContent": message.rawContent,
@@ -1044,35 +1478,46 @@ Singleton {
                 "functionCall": message.functionCall,
                 "functionResponse": message.functionResponse,
                 "visibleToUser": message.visibleToUser,
-            });
-        });
+            })
+        })
     }
 
     FileView {
         id: chatSaveFile
         property string chatName: ""
         path: chatName.length > 0 ? `${Directories.aiChats}/${chatName}.json` : ""
-        blockLoading: true
+        blockLoading: true // Prevent race conditions
     }
 
+    /**
+     * Saves chat to a JSON list of message objects.
+     * @param chatName name of the chat
+     */
     function saveChat(chatName) {
-        chatSaveFile.chatName = chatName.trim();
-        const saveContent = JSON.stringify(root.chatToJson());
-        chatSaveFile.setText(saveContent);
+        chatSaveFile.chatName = chatName.trim()
+        const saveContent = JSON.stringify(root.chatToJson())
+        chatSaveFile.setText(saveContent)
         getSavedChats.running = true;
     }
 
+    /**
+     * Loads chat from a JSON list of message objects.
+     * @param chatName name of the chat
+     */
     function loadChat(chatName) {
         try {
-            chatSaveFile.chatName = chatName.trim();
-            chatSaveFile.reload();
-            const saveContent = chatSaveFile.text();
-            const saveData = JSON.parse(saveContent);
-            root.clearMessages();
-            root.messageIDs = saveData.map((_, i) => i);
+            chatSaveFile.chatName = chatName.trim()
+            chatSaveFile.reload()
+            const saveContent = chatSaveFile.text()
+            // console.log(saveContent)
+            const saveData = JSON.parse(saveContent)
+            root.clearMessages()
+            root.messageIDs = saveData.map((_, i) => {
+                return i
+            })
+            // console.log(JSON.stringify(messageIDs))
             for (let i = 0; i < saveData.length; i++) {
                 const message = saveData[i];
-                if (message.model) root.ensureModel(message.model);
                 root.messageByID[i] = root.aiMessageComponent.createObject(root, {
                     "role": message.role,
                     "rawContent": message.rawContent,
@@ -1092,165 +1537,9 @@ Singleton {
                 });
             }
         } catch (e) {
-            console.log("[Ai] Could not load chat:", e);
+            console.log("[AI] Could not load chat: ", e);
         } finally {
             getSavedChats.running = true;
         }
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // SESSION HISTORY — List, switch, delete OpenCode sessions
-    // ═══════════════════════════════════════════════════════════════════════
-
-    signal sessionsLoaded(var sessions)
-    signal sessionDeleted(string sessionId)
-    property var sessionsList: []
-    property bool sessionsLoading: false
-
-    // List sessions — GET /session
-    Process {
-        id: listSessionsProc
-        running: false
-        command: ["curl", "-s", root.apiBase + "/session"]
-        stdout: StdioCollector {
-            onStreamFinished: {
-                root.sessionsLoading = false;
-                if (text.length === 0) return;
-                try {
-                    const sessions = JSON.parse(text);
-                    // Filter out subtask sessions (those with parentID) and sort by time
-                    const filtered = sessions
-                        .filter(s => !s.parentID)
-                        .sort((a, b) => {
-                            const ta = a.time?.updated ?? a.time?.created ?? "";
-                            const tb = b.time?.updated ?? b.time?.created ?? "";
-                            return tb.localeCompare(ta); // newest first
-                        });
-                    root.sessionsList = filtered;
-                    root.sessionsLoaded(filtered);
-                } catch (e) {
-                    console.log("[Ai] Session list parse error:", e);
-                }
-            }
-        }
-    }
-
-    function listSessions() {
-        root.sessionsLoading = true;
-        listSessionsProc.running = false;
-        listSessionsProc.running = true;
-    }
-
-    // Load messages from a session — GET /session/{id}/message
-    Process {
-        id: loadSessionMessagesProc
-        running: false
-        property string targetSessionId: ""
-        property string targetSessionTitle: ""
-        stdout: StdioCollector {
-            onStreamFinished: {
-                if (text.length === 0) return;
-                try {
-                    const messages = JSON.parse(text);
-                    root.clearMessages();
-                    root.sessionId = loadSessionMessagesProc.targetSessionId;
-                    root.sessionTitle = loadSessionMessagesProc.targetSessionTitle;
-
-                    for (let i = 0; i < messages.length; i++) {
-                        const msg = messages[i];
-                        const info = msg.info;
-                        const parts = msg.parts ?? [];
-                        if (!info || !info.role) continue;
-                        // Skip system messages
-                        if (info.role === "system") continue;
-
-                        // Reconstruct content from parts
-                        let content = "";
-                        for (let j = 0; j < parts.length; j++) {
-                            const part = parts[j];
-                            if (part.type === "text") {
-                                content += part.text ?? "";
-                            } else if (part.type === "reasoning") {
-                                content += "<think>\n" + (part.text ?? "") + "\n</think>\n\n";
-                            } else if (part.type === "tool") {
-                                const tool = part.tool ?? "tool";
-                                const state = part.state ?? {};
-                                const title = state.title ?? tool;
-                                const status = state.status ?? "completed";
-                                const output = state.output ?? state.error ?? "";
-                                const input = state.input ? JSON.stringify(state.input) : "";
-                                content += `\n\n<tool name="${tool}" title="${title.replace(/"/g, '&quot;')}" status="${status}"${input ? ` input="${input.replace(/"/g, '&quot;').substring(0, 500)}"` : ""}>${output ? output.substring(0, 2000) : ""}</tool>\n\n`;
-                            } else if (part.type === "subtask") {
-                                const agent = part.agent ?? "general";
-                                const desc = part.description ?? "";
-                                const prompt = part.prompt ?? "";
-                                const inp = JSON.stringify({ agent: agent, description: desc, prompt: prompt.substring(0, 500) });
-                                content += `\n\n<tool name="task" title="${desc.replace(/"/g, '&quot;')}" status="completed" input="${inp.replace(/"/g, '&quot;')}">${agent} agent: ${desc}</tool>\n\n`;
-                            }
-                        }
-
-                        const modelId = (info.providerID && info.modelID) ? (info.providerID + "/" + info.modelID) : "";
-                        if (modelId) root.ensureModel(modelId);
-
-                        const aiMsg = root.aiMessageComponent.createObject(root, {
-                            "role": info.role,
-                            "content": content,
-                            "rawContent": content,
-                            "thinking": false,
-                            "done": true,
-                            "model": modelId,
-                        });
-                        const id = root.idForMessage(aiMsg);
-                        root.messageIDs = [...root.messageIDs, id];
-                        root.messageByID[id] = aiMsg;
-                    }
-                } catch (e) {
-                    console.log("[Ai] Session messages load error:", e);
-                    root.addMessage("**Error:** Could not load session messages.", root.interfaceRole);
-                }
-            }
-        }
-    }
-
-    function switchSession(sid, title) {
-        loadSessionMessagesProc.targetSessionId = sid;
-        loadSessionMessagesProc.targetSessionTitle = title || "";
-        loadSessionMessagesProc.running = false;
-        loadSessionMessagesProc.command = ["curl", "-s", root.apiBase + "/session/" + sid + "/message"];
-        loadSessionMessagesProc.running = true;
-    }
-
-    // Delete a session — DELETE /session/{id}
-    Process {
-        id: deleteSessionProc
-        running: false
-        property string targetSessionId: ""
-        stdout: StdioCollector {
-            onStreamFinished: {
-                const code = text.trim();
-                if (code === "200" || code === "204") {
-                    root.sessionDeleted(deleteSessionProc.targetSessionId);
-                    // If we deleted the active session, clear
-                    if (deleteSessionProc.targetSessionId === root.sessionId) {
-                        root.clearMessages();
-                    }
-                    // Refresh list
-                    root.listSessions();
-                } else {
-                    console.log("[Ai] Delete session error, HTTP:", code);
-                }
-            }
-        }
-    }
-
-    function deleteSession(sid) {
-        deleteSessionProc.targetSessionId = sid;
-        deleteSessionProc.running = false;
-        deleteSessionProc.command = [
-            "curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
-            "-X", "DELETE",
-            root.apiBase + "/session/" + sid
-        ];
-        deleteSessionProc.running = true;
     }
 }

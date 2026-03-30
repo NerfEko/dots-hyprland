@@ -1,11 +1,16 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Dialogs
 import qs.services
 import qs.modules.common
 import qs.modules.common.widgets
 
 ContentPage {
     forceWidth: true
+
+    Component.onCompleted: {
+        if (!KeyringStorage.loaded) KeyringStorage.fetchKeyringData()
+    }
 
     ContentSection {
         icon: "neurology"
@@ -20,6 +25,126 @@ ContentPage {
                 Qt.callLater(() => {
                     Config.options.ai.systemPrompt = text;
                 });
+            }
+        }
+    }
+
+    ContentSection {
+        icon: "key"
+        title: Translation.tr("AI API Keys")
+
+        StyledText {
+            Layout.fillWidth: true
+            text: Translation.tr("Keys are stored in the system keyring, not in config files.")
+            font.pixelSize: Appearance.font.pixelSize.small
+            color: Appearance.colors.colOnSurfaceVariant
+            wrapMode: Text.WordWrap
+        }
+
+        ContentSubsection {
+            title: Translation.tr("GitHub")
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                MaterialTextArea {
+                    id: githubTokenField
+                    Layout.fillWidth: true
+                    placeholderText: Translation.tr("Personal access token")
+                    text: KeyringStorage.keyringData?.apiKeys?.github_token ?? ""
+                    wrapMode: TextEdit.NoWrap
+                }
+
+                RippleButton {
+                    Layout.fillHeight: true
+                    implicitWidth: implicitHeight
+                    onClicked: {
+                        KeyringStorage.setNestedField(["apiKeys", "github_token"], githubTokenField.text.trim())
+                    }
+                    contentItem: MaterialSymbol {
+                        anchors.centerIn: parent
+                        text: "save"
+                        iconSize: 20
+                    }
+                    StyledToolTip {
+                        text: Translation.tr("Save to keyring")
+                    }
+                }
+            }
+        }
+
+        ContentSubsection {
+            title: Translation.tr("Claude.ai")
+
+            StyledText {
+                Layout.fillWidth: true
+                text: Translation.tr("Open DevTools → Application → Cookies → claude.ai → sessionKey")
+                font.pixelSize: Appearance.font.pixelSize.smaller
+                color: Appearance.colors.colOnSurfaceVariant
+                wrapMode: Text.WordWrap
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                MaterialTextArea {
+                    id: claudeCookieField
+                    Layout.fillWidth: true
+                    placeholderText: Translation.tr("sessionKey cookie value")
+                    text: KeyringStorage.keyringData?.apiKeys?.claude_session_cookie ?? ""
+                    wrapMode: TextEdit.NoWrap
+                }
+
+                RippleButton {
+                    Layout.fillHeight: true
+                    implicitWidth: implicitHeight
+                    onClicked: {
+                        KeyringStorage.setNestedField(["apiKeys", "claude_session_cookie"], claudeCookieField.text.trim())
+                    }
+                    contentItem: MaterialSymbol {
+                        anchors.centerIn: parent
+                        text: "save"
+                        iconSize: 20
+                    }
+                    StyledToolTip {
+                        text: Translation.tr("Save to keyring")
+                    }
+                }
+            }
+        }
+
+        ContentSubsection {
+            title: Translation.tr("OpenRouter")
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                MaterialTextArea {
+                    id: openrouterKeyField
+                    Layout.fillWidth: true
+                    placeholderText: Translation.tr("API key")
+                    text: KeyringStorage.keyringData?.apiKeys?.openrouter_api_key ?? ""
+                    wrapMode: TextEdit.NoWrap
+                }
+
+                RippleButton {
+                    Layout.fillHeight: true
+                    implicitWidth: implicitHeight
+                    onClicked: {
+                        KeyringStorage.setNestedField(["apiKeys", "openrouter_api_key"], openrouterKeyField.text.trim())
+                    }
+                    contentItem: MaterialSymbol {
+                        anchors.centerIn: parent
+                        text: "save"
+                        iconSize: 20
+                    }
+                    StyledToolTip {
+                        text: Translation.tr("Save to keyring")
+                    }
+                }
             }
         }
     }
@@ -89,24 +214,90 @@ ContentPage {
         icon: "file_open"
         title: Translation.tr("Save paths")
 
-        MaterialTextArea {
-            Layout.fillWidth: true
-            placeholderText: Translation.tr("Video Recording Path")
-            text: Config.options.screenRecord.savePath
-            wrapMode: TextEdit.Wrap
-            onTextChanged: {
-                Config.options.screenRecord.savePath = text;
+        ContentSubsection {
+            title: Translation.tr("Video Recording Path")
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                MaterialTextArea {
+                    Layout.fillWidth: true
+                    placeholderText: Translation.tr("Video Recording Path")
+                    text: Config.options.screenRecord.savePath
+                    wrapMode: TextEdit.Wrap
+                    onTextChanged: {
+                        Config.options.screenRecord.savePath = text;
+                    }
+                }
+
+                RippleButton {
+                    Layout.fillHeight: true
+                    implicitWidth: implicitHeight
+                    onClicked: {
+                        videoPathDialog.open()
+                    }
+                    contentItem: MaterialSymbol {
+                        anchors.centerIn: parent
+                        text: "folder_open"
+                        iconSize: 20
+                    }
+                    StyledToolTip {
+                        text: Translation.tr("Browse for folder")
+                    }
+                }
             }
         }
         
-        MaterialTextArea {
-            Layout.fillWidth: true
-            placeholderText: Translation.tr("Screenshot Path (leave empty to just copy)")
-            text: Config.options.screenSnip.savePath
-            wrapMode: TextEdit.Wrap
-            onTextChanged: {
-                Config.options.screenSnip.savePath = text;
+        ContentSubsection {
+            title: Translation.tr("Screenshot Path")
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                MaterialTextArea {
+                    Layout.fillWidth: true
+                    placeholderText: Translation.tr("Screenshot Path (leave empty to just copy)")
+                    text: Config.options.screenSnip.savePath
+                    wrapMode: TextEdit.Wrap
+                    onTextChanged: {
+                        Config.options.screenSnip.savePath = text;
+                    }
+                }
+
+                RippleButton {
+                    Layout.fillHeight: true
+                    implicitWidth: implicitHeight
+                    onClicked: {
+                        screenshotPathDialog.open()
+                    }
+                    contentItem: MaterialSymbol {
+                        anchors.centerIn: parent
+                        text: "folder_open"
+                        iconSize: 20
+                    }
+                    StyledToolTip {
+                        text: Translation.tr("Browse for folder")
+                    }
+                }
             }
+        }
+    }
+
+    FolderDialog {
+        id: videoPathDialog
+        title: Translation.tr("Select Video Recording Folder")
+        onAccepted: {
+            Config.options.screenRecord.savePath = videoPathDialog.selectedFolder.toString().replace("file://", "")
+        }
+    }
+
+    FolderDialog {
+        id: screenshotPathDialog
+        title: Translation.tr("Select Screenshot Folder")
+        onAccepted: {
+            Config.options.screenSnip.savePath = screenshotPathDialog.selectedFolder.toString().replace("file://", "")
         }
     }
 
@@ -202,6 +393,32 @@ ContentPage {
             }
         }
     }
+
+    // There's no update indicator in ii for now so we shouldn't show this yet
+    // ContentSection {
+    //     icon: "deployed_code_update"
+    //     title: Translation.tr("System updates (Arch only)")
+
+    //     ConfigSwitch {
+    //         text: Translation.tr("Enable update checks")
+    //         checked: Config.options.updates.enableCheck
+    //         onCheckedChanged: {
+    //             Config.options.updates.enableCheck = checked;
+    //         }
+    //     }
+
+    //     ConfigSpinBox {
+    //         icon: "av_timer"
+    //         text: Translation.tr("Check interval (mins)")
+    //         value: Config.options.updates.checkInterval
+    //         from: 60
+    //         to: 1440
+    //         stepSize: 60
+    //         onValueChanged: {
+    //             Config.options.updates.checkInterval = value;
+    //         }
+    //     }
+    // }
 
     ContentSection {
         icon: "weather_mix"

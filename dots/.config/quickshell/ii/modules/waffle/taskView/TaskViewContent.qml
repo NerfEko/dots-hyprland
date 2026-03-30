@@ -56,10 +56,10 @@ Rectangle {
     }
 
     // Windows
-    property real maxWindowHeight: 363 // was 290, 1.25x
-    property real maxWindowWidth: 923 // was 738, 1.25x
-    property real padding: 65 // was 52, 1.25x
-    property real spacing: 31 // was 25, 1.25x
+    property real maxWindowHeight: 290
+    property real maxWindowWidth: 738
+    property real padding: 52
+    property real spacing: 25
     readonly property list<var> toplevels: ToplevelManager.toplevels.values.filter(t => {
         const client = HyprlandData.clientForToplevel(t);
         return client && client.workspace.id === HyprlandData.activeWorkspace?.id;
@@ -111,14 +111,14 @@ Rectangle {
             left: parent.left
             right: parent.right
             top: parent.top
-            topMargin: (root.height - (wsBorder.height + 20) - height) / 2 // orig wsBorder.height+16; 1.25x extra
+            topMargin: (root.height - (wsBorder.height + 16) - height) / 2
         }
         spacing: root.spacing
         topMargin: root.padding
         bottomMargin: root.padding
         leftMargin: root.padding
         rightMargin: root.padding
-        height: Math.min(contentHeight + topMargin + bottomMargin, root.height - (wsBorder.height + 20)) // orig wsBorder.height+16; 1.25x extra
+        height: Math.min(contentHeight + topMargin + bottomMargin, root.height - (wsBorder.height + 16))
 
         interactive: (height < contentHeight) && !root.draggingWindow
         clip: root.openProgress > 0.99 && !root.draggingWindow
@@ -209,13 +209,13 @@ Rectangle {
     Rectangle {
         id: wsBorder
         z: root.openProgress == 1 ? 1 : 2
-        property real sourceEdgeMargin: -(height + 10) + root.openProgress * (height + 20) // was 8/16; 1.25x
+        property real sourceEdgeMargin: -(height + 8) + root.openProgress * (height + 16)
         anchors {
             left: parent.left
             right: parent.right
             bottom: parent.bottom
-            leftMargin: 10 // was 8
-            rightMargin: 10 // was 8
+            leftMargin: 8
+            rightMargin: 8
             topMargin: sourceEdgeMargin
             bottomMargin: sourceEdgeMargin
         }
@@ -233,7 +233,7 @@ Rectangle {
             radius: wsBorder.radius - wsBorder.border.width
             color: Looks.colors.bgPanelFooterBackground
 
-            implicitHeight: 218 // was 174, 1.25x
+            implicitHeight: 174
 
             WListView {
                 id: workspaceListView
@@ -241,17 +241,17 @@ Rectangle {
                     top: parent.top
                     bottom: parent.bottom
                     horizontalCenter: parent.horizontalCenter
-                    topMargin: 6 // was 5
-                    bottomMargin: 6 // was 5
+                    topMargin: 5
+                    bottomMargin: 5
                 }
                 flickableDirection: Flickable.HorizontalFlick
                 orientation: ListView.Horizontal
                 interactive: width == parent.width
                 width: Math.min(contentWidth + leftMargin + rightMargin, parent.width)
-                leftMargin: 6 // was 5
-                rightMargin: 6 // was 5
+                leftMargin: 5
+                rightMargin: 5
                 clip: true
-                spacing: 5 // was 4
+                spacing: 4
 
                 function reposition() {
                     positionViewAtIndex(HyprlandData.activeWorkspace.id - 1, ListView.Contain);

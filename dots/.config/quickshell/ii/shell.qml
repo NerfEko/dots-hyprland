@@ -3,10 +3,11 @@
 //@ pragma Env QT_QUICK_CONTROLS_STYLE=Basic
 //@ pragma Env QT_QUICK_FLICKABLE_WHEEL_DECELERATION=10000
 
-// Adjust this to make the shell smaller or larger
-//@ pragma Env QT_SCALE_FACTOR=1
+// Remove two slashes below and adjust the value to change the UI scale
+////@ pragma Env QT_SCALE_FACTOR=1
 
 import "modules/common"
+import "modules/common/voiceInput"
 import "services"
 import "panelFamilies"
 
@@ -21,6 +22,7 @@ ShellRoot {
 
     // Stuff for every panel family
     ReloadPopup {}
+    VoiceInputPopup {}
 
     Component.onCompleted: {
         MaterialThemeLoader.reapplyTheme()

@@ -27,22 +27,25 @@ Singleton {
     property bool sessionOpen: false
     property bool superDown: false
     property bool superReleaseMightTrigger: true
+    property bool voiceInputOpen: false
+    property string voiceInputPreviousWindowAddress: ""
     property bool wallpaperSelectorOpen: false
     property bool workspaceShowNumbers: false
+    property bool faceAuthOpen: false
+    property string faceAuthState: "idle" // "idle" | "scanning" | "success" | "fail"
+
+    Connections {
+        target: Config.options.oledMode
+        function onEnableChanged() {
+            // Force UI refresh when OLED mode changes
+        }
+    }
 
     onSidebarRightOpenChanged: {
         if (GlobalStates.sidebarRightOpen) {
             Notifications.timeoutAll();
             Notifications.markAllRead();
         }
-    }
-
-    property real screenZoom: 1
-    onScreenZoomChanged: {
-        Quickshell.execDetached(["hyprctl", "keyword", "cursor:zoom_factor", root.screenZoom.toString()]);
-    }
-    Behavior on screenZoom {
-        animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
     }
 
     GlobalShortcut {
@@ -56,16 +59,4 @@ Singleton {
             root.superDown = false
         }
     }
-
-    IpcHandler {
-		target: "zoom"
-
-		function zoomIn() {
-            screenZoom = Math.min(screenZoom + 0.4, 3.0)
-        }
-
-        function zoomOut() {
-            screenZoom = Math.max(screenZoom - 0.4, 1)
-        } 
-	}
 }

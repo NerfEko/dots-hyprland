@@ -199,16 +199,16 @@ Singleton {
     }
 
     rounding: QtObject {
-        property int unsharpen: 3
-        property int unsharpenmore: 8
-        property int verysmall: 10
-        property int small: 15
-        property int normal: 21
-        property int large: 29
-        property int verylarge: 38
+        property int unsharpen: 2
+        property int unsharpenmore: 6
+        property int verysmall: 8
+        property int small: 12
+        property int normal: 17
+        property int large: 23
+        property int verylarge: 30
         property int full: 9999
         property int screenRounding: large
-        property int windowRounding: 23
+        property int windowRounding: 18
     }
 
     font: QtObject {
@@ -235,15 +235,15 @@ Singleton {
             })
         }
         property QtObject pixelSize: QtObject {
-            property int smallest: 13
-            property int smaller: 15
-            property int smallie: 16
-            property int small: 19
-            property int normal: 20
-            property int large: 21
-            property int larger: 24
-            property int huge: 28
-            property int hugeass: 29
+            property int smallest: 10
+            property int smaller: 12
+            property int smallie: 13
+            property int small: 15
+            property int normal: 16
+            property int large: 17
+            property int larger: 19
+            property int huge: 22
+            property int hugeass: 23
             property int title: huge
         }
     }
@@ -371,34 +371,33 @@ Singleton {
     }
 
     sizes: QtObject {
-        property real baseBarHeight: 50
+        property real baseBarHeight: 40
         property real barHeight: Config.options.bar.cornerStyle === 1 ? 
             (baseBarHeight + root.sizes.hyprlandGapsOut * 2) : baseBarHeight
-        property real barCenterSideModuleWidth: Config.options?.bar.verbose ? 450 : 175
-        property real barCenterSideModuleWidthShortened: 350
-        property real barCenterSideModuleWidthHellaShortened: 238
-        property real barShortenScreenWidthThreshold: 1500 // Shorten if screen width is at most this value
-        property real barHellaShortenScreenWidthThreshold: 1250 // Shorten even more...
-        property real elevationMargin: 13
-        property real fabShadowRadius: 6
-        property real fabHoveredShadowRadius: 9
-        property real hyprlandGapsOut: 6
-        property real mediaControlsWidth: 550
-        property real mediaControlsHeight: 200
-        property real notificationPopupWidth: 513
-        property real osdWidth: 225
-        property real searchWidthCollapsed: 263
-        property real searchWidth: 450
-        property real sidebarWidth: Config.options.sidebar.sidebarWidth
-        property real leftSidebarWidth: Config.options.sidebar.leftSidebarWidth
-        property real leftSidebarWidthExtended: 1550
-        property real baseVerticalBarWidth: 58
+        property real barCenterSideModuleWidth: Config.options?.bar.verbose ? 360 : 140
+        property real barCenterSideModuleWidthShortened: 280
+        property real barCenterSideModuleWidthHellaShortened: 190
+        property real barShortenScreenWidthThreshold: 1200 // Shorten if screen width is at most this value
+        property real barHellaShortenScreenWidthThreshold: 1000 // Shorten even more...
+        property real elevationMargin: 10
+        property real fabShadowRadius: 5
+        property real fabHoveredShadowRadius: 7
+        property real hyprlandGapsOut: 5
+        property real mediaControlsWidth: 440
+        property real mediaControlsHeight: 160
+        property real notificationPopupWidth: 410
+        property real osdWidth: 180
+        property real searchWidthCollapsed: 210
+        property real searchWidth: 360
+        property real sidebarWidth: 460
+        property real sidebarWidthExtended: 750
+        property real baseVerticalBarWidth: 46
         property real verticalBarWidth: Config.options.bar.cornerStyle === 1 ? 
             (baseVerticalBarWidth + root.sizes.hyprlandGapsOut * 2) : baseVerticalBarWidth
-        property real wallpaperSelectorWidth: 1500
-        property real wallpaperSelectorHeight: 863
-        property real wallpaperSelectorItemMargins: 10
-        property real wallpaperSelectorItemPadding: 8
+        property real wallpaperSelectorWidth: 1200
+        property real wallpaperSelectorHeight: 690
+        property real wallpaperSelectorItemMargins: 8
+        property real wallpaperSelectorItemPadding: 6
     }
 
     syntaxHighlightingTheme: root.m3colors.darkmode ? "Monokai" : "ayu Light"

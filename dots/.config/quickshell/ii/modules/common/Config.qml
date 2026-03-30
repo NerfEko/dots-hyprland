@@ -86,20 +86,28 @@ Singleton {
             }
 
             property JsonObject ai: JsonObject {
-                property string systemPrompt: "## Style\n- Use casual tone, don't be formal! Make sure you answer precisely without hallucination and prefer bullet points over walls of text. You can have a friendly greeting at the beginning of the conversation, but don't repeat the user's question\n\n## Context (ignore when irrelevant)\n- You are a helpful and inspiring sidebar assistant on a {DISTRO} Linux system\n- Desktop environment: {DE}\n- Current date & time: {DATETIME}\n- Focused app: {WINDOWCLASS}\n\n## Presentation\n- Use Markdown features in your response: \n  - **Bold** text to **highlight keywords** in your response\n  - **Split long information into small sections** with h2 headers and a relevant emoji at the start of it (for example `## 🐧 Linux`). Bullet points are preferred over long paragraphs, unless you're offering writing support or instructed otherwise by the user.\n- Asked to compare different options? You should firstly use a table to compare the main aspects, then elaborate or include relevant comments from online forums *after* the table. Make sure to provide a final recommendation for the user's use case!\n- Use LaTeX formatting for mathematical and scientific notations whenever appropriate. Enclose all LaTeX '$$' delimiters. NEVER generate LaTeX code in a latex block unless the user explicitly asks for it. DO NOT use LaTeX for regular documents (resumes, letters, essays, CVs, etc.).\n"
-                property string tool: "functions" // search, functions, or none
+                property string systemPrompt: "You are a helpful sidebar assistant on {DISTRO} Linux ({DE}). Time: {DATETIME}. App: {WINDOWCLASS}.\n\n## Hardware\n- CPU: {CPU_MODEL} ({CORES} cores, {CPU}) | GPU: {GPU_MODEL} ({GPU} load) | RAM: {RAM_USED} of {RAM}\n\nBe casual and concise. Use markdown with bold headers and bullet points. Only use tools when the user explicitly asks you to read, write, or edit files. For writing essays, stories, or answering questions, just respond directly."
+                property string tool: "none" // search, functions, quick, files, or none
                 property list<var> extraModels: [
                     {
-                        "api_format": "openai", // Most of the time you want "openai". Use "gemini" for Google's models
-                        "description": "This is a custom model. Edit the config to add more! | Anyway, this is DeepSeek R1 Distill LLaMA 70B",
-                        "endpoint": "https://openrouter.ai/api/v1/chat/completions",
-                        "homepage": "https://openrouter.ai/deepseek/deepseek-r1-distill-llama-70b:free", // Not mandatory
-                        "icon": "spark-symbolic", // Not mandatory
-                        "key_get_link": "https://openrouter.ai/settings/keys", // Not mandatory
-                        "key_id": "openrouter",
-                        "model": "deepseek/deepseek-r1-distill-llama-70b:free",
-                        "name": "Custom: DS R1 Dstl. LLaMA 70B",
-                        "requires_key": true
+                        "api_format": "openai",
+                        "description": "Local Ollama model | deepseek-coder:6.7b",
+                        "endpoint": "http://localhost:11434/v1/chat/completions",
+                        "homepage": "https://ollama.com/library/deepseek-coder:6.7b",
+                        "icon": "deepseek-symbolic",
+                        "model": "deepseek-coder:6.7b",
+                        "name": "Deepseek Coder (6.7B)",
+                        "requires_key": false
+                    },
+                    {
+                        "api_format": "openai",
+                        "description": "Local Ollama model | codellama:13b",
+                        "endpoint": "http://localhost:11434/v1/chat/completions",
+                        "homepage": "https://ollama.com/library/codellama:13b",
+                        "icon": "ollama-symbolic",
+                        "model": "codellama:13b",
+                        "name": "CodeLlama (13B)",
+                        "requires_key": false
                     }
                 ]
             }
@@ -209,6 +217,15 @@ Singleton {
                         property real x: 400
                         property real y: 100
                     }
+                    property JsonObject music: JsonObject {
+                        property bool enable: true
+                        property bool showOnlyWhenPlaying: false
+                        property string placementStrategy: "leastBusy" // "free", "leastBusy", "mostBusy"
+                        property real x: 100
+                        property real y: 100
+                        property real width: 280
+                        property real height: 450
+                    }
                 }
                 property string wallpaperPath: ""
                 property string thumbnailPath: ""
@@ -264,7 +281,7 @@ Singleton {
                     property bool showAppIcons: true
                     property bool alwaysShowNumbers: false
                     property int showNumberDelay: 300 // milliseconds
-                    property list<string> numberMap: ["一","二","三","四","五","六","七","八","九","十","十一","十二","十三","十四","十五","十六","十七","十八","十九","二十"] // Characters to show instead of numbers on workspace indicator
+                    property list<string> numberMap: ["1", "2"] // Characters to show instead of numbers on workspace indicator
                     property bool useNerdFont: false
                 }
                 property JsonObject weather: JsonObject {
@@ -281,6 +298,19 @@ Singleton {
                 }
                 property JsonObject tooltips: JsonObject {
                     property bool clickToShow: false
+                }
+                property JsonObject aiApiUsage: JsonObject {
+                    property bool enable: false
+                    property int fetchInterval: 2 // minutes
+                    property JsonObject github: JsonObject {
+                        property bool enable: true
+                    }
+                    property JsonObject claude: JsonObject {
+                        property bool enable: true
+                    }
+                    property JsonObject openrouter: JsonObject {
+                        property bool enable: true
+                    }
                 }
             }
 
@@ -330,7 +360,7 @@ Singleton {
                 property bool pinnedOnStartup: false
                 property bool hoverToReveal: true // When false, only reveals on empty workspace
                 property list<string> pinnedApps: [ // IDs of pinned entries
-                    "org.kde.dolphin", "kitty",]
+                    "org.gnome.Nautilus", "kitty",]
                 property list<string> ignoredAppRegexes: []
             }
 
@@ -356,7 +386,7 @@ Singleton {
             }
 
             property JsonObject launcher: JsonObject {
-                property list<string> pinnedApps: [ "org.kde.dolphin", "kitty", "cmake-gui"]
+                property list<string> pinnedApps: [ "org.gnome.Nautilus", "kitty", "cmake-gui"]
             }
 
             property JsonObject light: JsonObject {
@@ -369,6 +399,10 @@ Singleton {
                 property JsonObject antiFlashbang: JsonObject {
                     property bool enable: false
                 }
+            }
+
+            property JsonObject faceId: JsonObject {
+                property bool enabled: false
             }
 
             property JsonObject lock: JsonObject {
@@ -399,6 +433,10 @@ Singleton {
 
             property JsonObject notifications: JsonObject {
                 property int timeout: 7000
+            }
+
+            property JsonObject oledMode: JsonObject {
+                property bool enable: false
             }
 
             property JsonObject osd: JsonObject {
@@ -492,8 +530,6 @@ Singleton {
             }
 
             property JsonObject sidebar: JsonObject {
-                property real sidebarWidth: 575
-                property real leftSidebarWidth: 1200
                 property bool keepRightSidebarLoaded: true
                 property JsonObject translator: JsonObject {
                     property bool enable: false
@@ -533,7 +569,7 @@ Singleton {
                             { "size": 1, "type": "mic" },
                             { "size": 2, "type": "audio" },
                             { "size": 2, "type": "nightLight" },
-                            { "size": 2, "type": "protonVpn" }
+                            { "size": 1, "type": "faceId" }
                         ]
                     }
                 }
@@ -576,6 +612,7 @@ Singleton {
             }
 
             property JsonObject updates: JsonObject {
+                property bool enableCheck: true
                 property int checkInterval: 120 // minutes
                 property int adviseUpdateThreshold: 75 // packages
                 property int stronglyAdviseUpdateThreshold: 200 // packages
@@ -620,7 +657,7 @@ Singleton {
                     property bool leftAlignApps: false
                 }
                 property JsonObject actionCenter: JsonObject {
-                    property list<string> toggles: [ "network", "bluetooth", "easyEffects", "powerProfile", "gpuMode", "idleInhibitor", "nightLight", "darkMode", "antiFlashbang", "cloudflareWarp", "mic", "musicRecognition", "notifications", "onScreenKeyboard", "gameMode", "screenSnip", "colorPicker" ]
+                    property list<string> toggles: [ "network", "bluetooth", "easyEffects", "powerProfile", "idleInhibitor", "nightLight", "darkMode", "antiFlashbang", "cloudflareWarp", "mic", "musicRecognition", "notifications", "onScreenKeyboard", "gameMode", "screenSnip", "colorPicker" ]
                 }
                 property JsonObject calendar: JsonObject {
                     property bool force2CharDayOfWeek: true

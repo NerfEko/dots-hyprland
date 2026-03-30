@@ -25,7 +25,7 @@ BarButton {
                 bottom: parent.bottom
                 horizontalCenter: parent.horizontalCenter
             }
-            spacing: 5 // was 4, 1.25x
+            spacing: 4
 
             IconHoverArea {
                 id: internetHoverArea
@@ -33,13 +33,10 @@ BarButton {
                     anchors.verticalCenter: parent.verticalCenter
                     icon: "wifi-1"
                     color: Looks.colors.inactiveIcon
-                    width: 32 // explicit size (original around 24, set larger)
-                    height: 32
+
                     FluentIcon {
                         anchors.fill: parent
                         icon: WIcons.internetIcon
-                        width: 32
-                        height: 32
                     }
                 }
             }
@@ -50,13 +47,10 @@ BarButton {
                     anchors.verticalCenter: parent.verticalCenter
                     icon: "speaker"
                     color: Looks.colors.inactiveIcon
-                    width: 32
-                    height: 32
+                    
                     FluentIcon {
                         anchors.fill: parent
                         icon: WIcons.volumeIcon
-                        width: 32
-                        height: 32
                     }
                 }
                 onScrollDown: Audio.decrementVolume();
@@ -69,13 +63,9 @@ BarButton {
                 iconItem: FluentIcon {
                     anchors.verticalCenter: parent.verticalCenter
                     icon: WIcons.batteryLevelIcon
-                    width: 32
-                    height: 32
                     FluentIcon {
                         anchors.fill: parent
                         icon: WIcons.batteryIcon
-                        width: 32
-                        height: 32
                     }
                 }
             }

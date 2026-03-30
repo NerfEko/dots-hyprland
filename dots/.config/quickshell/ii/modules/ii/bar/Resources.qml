@@ -45,6 +45,16 @@ MouseArea {
             warningThreshold: Config.options.bar.resources.cpuWarningThreshold
         }
 
+        Resource {
+            iconName: "stadia_controller"
+            percentage: ResourceUsage.gpuUsage
+            shown: (Config.options.bar.resources?.alwaysShowGpu ?? true) || 
+                !(MprisController.activePlayer?.trackTitle?.length > 0) ||
+                root.alwaysShowAllResources
+            Layout.leftMargin: shown ? 6 : 0
+            warningThreshold: Config.options.bar.resources?.gpuWarningThreshold ?? 95
+        }
+
     }
 
     ResourcesPopup {

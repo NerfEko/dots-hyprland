@@ -10,8 +10,6 @@ Rectangle {
     signal openAudioOutputDialog()
     signal openAudioInputDialog()
     signal openBluetoothDialog()
-    signal openGpuModeDialog()
     signal openNightLightDialog()
     signal openWifiDialog()
-    signal openVpnDialog()
 }

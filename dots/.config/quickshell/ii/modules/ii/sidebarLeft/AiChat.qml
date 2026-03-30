@@ -19,7 +19,6 @@ Item {
 
     property var suggestionQuery: ""
     property var suggestionList: []
-    property bool showSessionBrowser: false
 
     onFocusChanged: focus => {
         if (focus) {
@@ -46,16 +45,32 @@ Item {
     property var allCommands: [
         {
             name: "attach",
-            description: Translation.tr("Attach a file to the next message."),
+            description: Translation.tr("Attach a file. Only works with Gemini."),
             execute: args => {
                 Ai.attachFile(args.join(" ").trim());
             }
         },
         {
             name: "model",
-            description: Translation.tr("Choose model (provider/model format)"),
+            description: Translation.tr("Choose model"),
             execute: args => {
-                Ai.setModel(args.join(" ").trim());
+                Ai.setModel(args[0]);
+            }
+        },
+        {
+            name: "tool",
+            description: Translation.tr("Set the tool to use for the model."),
+            execute: args => {
+                // console.log(args)
+                if (args.length == 0 || args[0] == "get") {
+                    Ai.addMessage(Translation.tr("Usage: %1tool TOOL_NAME").arg(root.commandPrefix), Ai.interfaceRole);
+                } else {
+                    const tool = args[0];
+                    const switched = Ai.setTool(tool);
+                    if (switched) {
+                        Ai.addMessage(Translation.tr("Tool set to: %1").arg(tool), Ai.interfaceRole);
+                    }
+                }
             }
         },
         {
@@ -67,6 +82,17 @@ Item {
                     return;
                 }
                 Ai.loadPrompt(args.join(" ").trim());
+            }
+        },
+        {
+            name: "key",
+            description: Translation.tr("Set API key"),
+            execute: args => {
+                if (args[0] == "get") {
+                    Ai.printApiKey();
+                } else {
+                    Ai.setApiKey(args[0]);
+                }
             }
         },
         {
@@ -95,35 +121,22 @@ Item {
         },
         {
             name: "clear",
-            description: Translation.tr("Clear chat and start new session"),
+            description: Translation.tr("Clear chat history"),
             execute: () => {
                 Ai.clearMessages();
             }
         },
         {
             name: "temp",
-            description: Translation.tr("Set temperature (randomness). Values 0-2. Default 0.5."),
+            description: Translation.tr("Set temperature (randomness) of the model. Values range between 0 to 2 for Gemini, 0 to 1 for other models. Default is 0.5."),
             execute: args => {
+                // console.log(args)
                 if (args.length == 0 || args[0] == "get") {
                     Ai.printTemperature();
                 } else {
                     const temp = parseFloat(args[0]);
                     Ai.setTemperature(temp);
                 }
-            }
-        },
-        {
-            name: "abort",
-            description: Translation.tr("Stop the current response"),
-            execute: () => {
-                Ai.abortSession();
-            }
-        },
-        {
-            name: "sessions",
-            description: Translation.tr("Browse session history"),
-            execute: () => {
-                root.showSessionBrowser = true;
             }
         },
         {
@@ -311,13 +324,9 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                     spacing: 10
 
                     StatusItem {
-                        icon: Ai.sessionId.length > 0 ? "link" : "link_off"
-                        statusText: Ai.sessionTitle.length > 0 ? Ai.sessionTitle : ""
-                        description: Ai.sessionId.length > 0 ? Translation.tr("Session active — Click to browse sessions") : Translation.tr("No active session\nSend a message to start one")
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: {
-                            root.showSessionBrowser = true;
-                        }
+                        icon: Ai.currentModelHasApiKey ? "key" : "key_off"
+                        statusText: ""
+                        description: Ai.currentModelHasApiKey ? Translation.tr("API key is set\nChange with /key YOUR_API_KEY") : Translation.tr("No API key\nSet it with /key YOUR_API_KEY")
                     }
                     StatusSeparator {}
                     StatusItem {
@@ -388,8 +397,8 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                 z: 2
                 shown: Ai.messageIDs.length === 0
                 icon: "neurology"
-                title: Translation.tr("OpenCode AI")
-                description: Translation.tr("Powered by OpenCode\n/model to switch models\nCtrl+O to expand sidebar\nCtrl+P to pin sidebar\nCtrl+D to detach sidebar")
+                title: Translation.tr("Large language models")
+                description: Translation.tr("Type /key to get started with online models\nCtrl+O to expand sidebar\nCtrl+P to pin sidebar\nCtrl+D to detach sidebar")
                 shape: MaterialShape.Shape.PixelCircle
             }
 
@@ -460,169 +469,6 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
             }
         }
 
-        // ─── Permission approval banner ──────────────────────────────────
-        Rectangle {
-            id: permissionBanner
-            visible: Ai.pendingPermissions.length > 0
-            Layout.fillWidth: true
-            radius: Appearance.rounding.small
-            color: Appearance.colors.colLayer2
-            border.width: 1
-            border.color: Appearance.m3colors.m3outline
-            implicitHeight: visible ? permissionLayout.implicitHeight + 16 : 0
-
-            Behavior on implicitHeight {
-                animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
-            }
-
-            property var currentPermission: Ai.pendingPermissions.length > 0 ? Ai.pendingPermissions[0] : null
-
-            ColumnLayout {
-                id: permissionLayout
-                anchors {
-                    fill: parent
-                    margins: 8
-                }
-                spacing: 6
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 8
-
-                    MaterialSymbol {
-                        Layout.alignment: Qt.AlignTop
-                        iconSize: Appearance.font.pixelSize.larger
-                        color: Appearance.m3colors.m3tertiary
-                        text: {
-                            const perm = permissionBanner.currentPermission;
-                            if (!perm) return "shield";
-                            switch (perm.type) {
-                            case "edit": return "edit_document";
-                            case "bash": return "terminal";
-                            case "webfetch": return "language";
-                            case "doom_loop": return "all_inclusive";
-                            case "external_directory": return "folder_open";
-                            default: return "shield";
-                            }
-                        }
-                    }
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 2
-
-                        StyledText {
-                            Layout.fillWidth: true
-                            font.pixelSize: Appearance.font.pixelSize.small
-                            font.bold: true
-                            color: Appearance.m3colors.m3onSurface
-                            text: Translation.tr("Permission required")
-                        }
-                        StyledText {
-                            Layout.fillWidth: true
-                            font.pixelSize: Appearance.font.pixelSize.small
-                            color: Appearance.colors.colSubtext
-                            wrapMode: Text.Wrap
-                            text: permissionBanner.currentPermission?.title ?? ""
-                        }
-                    }
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 6
-
-                    // Badge showing count of queued permissions
-                    StyledText {
-                        visible: Ai.pendingPermissions.length > 1
-                        font.pixelSize: Appearance.font.pixelSize.smaller
-                        color: Appearance.colors.colSubtext
-                        text: Translation.tr("+%1 more").arg(Ai.pendingPermissions.length - 1)
-                    }
-
-                    Item { Layout.fillWidth: true }
-
-                    GroupButton {
-                        Layout.fillWidth: false
-                        Layout.fillHeight: false
-                        horizontalPadding: 10
-                        verticalPadding: 5
-                        baseWidth: rejectLabel.implicitWidth + horizontalPadding * 2
-                        clickedWidth: baseWidth + 10
-                        baseHeight: rejectLabel.implicitHeight + verticalPadding * 2
-                        buttonRadius: Appearance.rounding.small
-                        colBackground: Appearance.colors.colLayer2
-                        colBackgroundHover: Appearance.colors.colLayer2Hover
-                        colBackgroundActive: Appearance.colors.colLayer2Active
-                        downAction: () => {
-                            if (permissionBanner.currentPermission)
-                                Ai.respondToPermission(permissionBanner.currentPermission.id, "reject");
-                        }
-
-                        contentItem: StyledText {
-                            id: rejectLabel
-                            horizontalAlignment: Text.AlignHCenter
-                            text: Translation.tr("Reject")
-                            font.pixelSize: Appearance.font.pixelSize.small
-                            color: Appearance.colors.colSubtext
-                        }
-                    }
-
-                    GroupButton {
-                        Layout.fillWidth: false
-                        Layout.fillHeight: false
-                        horizontalPadding: 10
-                        verticalPadding: 5
-                        baseWidth: alwaysLabel.implicitWidth + horizontalPadding * 2
-                        clickedWidth: baseWidth + 10
-                        baseHeight: alwaysLabel.implicitHeight + verticalPadding * 2
-                        buttonRadius: Appearance.rounding.small
-                        colBackground: Appearance.colors.colSecondaryContainer
-                        colBackgroundHover: Appearance.colors.colSecondaryContainerHover
-                        colBackgroundActive: Appearance.colors.colSecondaryContainerActive
-                        downAction: () => {
-                            if (permissionBanner.currentPermission)
-                                Ai.respondToPermission(permissionBanner.currentPermission.id, "always");
-                        }
-
-                        contentItem: StyledText {
-                            id: alwaysLabel
-                            horizontalAlignment: Text.AlignHCenter
-                            text: Translation.tr("Always allow")
-                            font.pixelSize: Appearance.font.pixelSize.small
-                            color: Appearance.m3colors.m3onSecondaryContainer
-                        }
-                    }
-
-                    GroupButton {
-                        Layout.fillWidth: false
-                        Layout.fillHeight: false
-                        horizontalPadding: 10
-                        verticalPadding: 5
-                        baseWidth: onceLabel.implicitWidth + horizontalPadding * 2
-                        clickedWidth: baseWidth + 10
-                        baseHeight: onceLabel.implicitHeight + verticalPadding * 2
-                        buttonRadius: Appearance.rounding.small
-                        colBackground: Appearance.m3colors.m3primary
-                        colBackgroundHover: Qt.lighter(Appearance.m3colors.m3primary, 1.15)
-                        colBackgroundActive: Qt.darker(Appearance.m3colors.m3primary, 1.15)
-                        downAction: () => {
-                            if (permissionBanner.currentPermission)
-                                Ai.respondToPermission(permissionBanner.currentPermission.id, "once");
-                        }
-
-                        contentItem: StyledText {
-                            id: onceLabel
-                            horizontalAlignment: Text.AlignHCenter
-                            text: Translation.tr("Allow once")
-                            font.pixelSize: Appearance.font.pixelSize.small
-                            color: Appearance.m3colors.m3onPrimary
-                        }
-                    }
-                }
-            }
-        }
-
         Rectangle { // Input area
             id: inputWrapper
             property real spacing: 5
@@ -664,7 +510,7 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                     Layout.fillWidth: true
                     padding: 10
                     color: activeFocus ? Appearance.m3colors.m3onSurface : Appearance.m3colors.m3onSurfaceVariant
-                    placeholderText: Translation.tr('Message OpenCode... "%1" for commands').arg(root.commandPrefix)
+                    placeholderText: Translation.tr('Message the model... "%1" for commands').arg(root.commandPrefix)
 
                     background: null
 
@@ -748,6 +594,25 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                                     description: Translation.tr(`Load chat from %1`).arg(file.target)
                                 };
                             });
+                        } else if (messageInputField.text.startsWith(`${root.commandPrefix}tool`)) {
+                            root.suggestionQuery = messageInputField.text.split(" ")[1] ?? "";
+                            const toolResults = Fuzzy.go(root.suggestionQuery, Ai.availableTools.map(tool => {
+                                return {
+                                    name: Fuzzy.prepare(tool),
+                                    obj: tool
+                                };
+                            }), {
+                                all: true,
+                                key: "name"
+                            });
+                            root.suggestionList = toolResults.map(tool => {
+                                const toolName = tool.target;
+                                return {
+                                    name: `${messageInputField.text.trim().split(" ").length == 1 ? (root.commandPrefix + "tool ") : ""}${tool.target}`,
+                                    displayName: toolName,
+                                    description: Ai.toolDescriptions[toolName]
+                                };
+                            });
                         } else if (messageInputField.text.startsWith(root.commandPrefix)) {
                             root.suggestionQuery = messageInputField.text;
                             root.suggestionList = root.allCommands.filter(cmd => cmd.name.startsWith(messageInputField.text.substring(1))).map(cmd => {
@@ -822,27 +687,23 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                     }
                 }
 
-                RippleButton { // Send / Stop button
+                RippleButton { // Send button
                     id: sendButton
                     Layout.alignment: Qt.AlignTop
                     Layout.rightMargin: 5
                     implicitWidth: 40
                     implicitHeight: 40
                     buttonRadius: Appearance.rounding.small
-                    enabled: Ai.sessionBusy || messageInputField.text.length > 0
+                    enabled: messageInputField.text.length > 0
                     toggled: enabled
 
                     MouseArea {
                         anchors.fill: parent
                         cursorShape: sendButton.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                         onClicked: {
-                            if (Ai.sessionBusy) {
-                                Ai.abortSession();
-                            } else {
-                                const inputText = messageInputField.text;
-                                root.handleInput(inputText);
-                                messageInputField.clear();
-                            }
+                            const inputText = messageInputField.text;
+                            root.handleInput(inputText);
+                            messageInputField.clear();
                         }
                     }
 
@@ -851,7 +712,7 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                         horizontalAlignment: Text.AlignHCenter
                         iconSize: 22
                         color: sendButton.enabled ? Appearance.m3colors.m3onPrimary : Appearance.colors.colOnLayer2Disabled
-                        text: Ai.sessionBusy ? "stop" : "arrow_upward"
+                        text: "arrow_upward"
                     }
                 }
             }
@@ -885,48 +746,11 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                     tooltipText: Translation.tr("Current model: %1\nSet it with %2model MODEL").arg(Ai.getModel().name).arg(root.commandPrefix)
                 }
 
-                // Build / Plan toggle
-                Rectangle {
-                    id: agentToggle
-                    implicitHeight: agentRow.implicitHeight + 6
-                    implicitWidth: agentRow.implicitWidth + 12
-                    radius: Appearance.rounding.small
-                    color: Ai.currentAgent === "plan" ? Appearance.m3colors.m3tertiaryContainer : Appearance.m3colors.m3secondaryContainer
-                    Behavior on color { ColorAnimation { duration: 150 } }
-
-                    RowLayout {
-                        id: agentRow
-                        anchors.centerIn: parent
-                        spacing: 4
-
-                        MaterialSymbol {
-                            text: Ai.currentAgent === "plan" ? "edit_note" : "construction"
-                            iconSize: Appearance.font.pixelSize.normal
-                            color: Ai.currentAgent === "plan" ? Appearance.m3colors.m3onTertiaryContainer : Appearance.m3colors.m3onSecondaryContainer
-                            Behavior on color { ColorAnimation { duration: 150 } }
-                        }
-                        StyledText {
-                            font.pixelSize: Appearance.font.pixelSize.smaller
-                            color: Ai.currentAgent === "plan" ? Appearance.m3colors.m3onTertiaryContainer : Appearance.m3colors.m3onSecondaryContainer
-                            text: Ai.currentAgent === "plan" ? "Plan" : "Build"
-                            Behavior on color { ColorAnimation { duration: 150 } }
-                        }
-                    }
-
-                    MouseArea {
-                        id: agentToggleMouseArea
-                        anchors.fill: parent
-                        cursorShape: Qt.PointingHandCursor
-                        hoverEnabled: true
-                        onClicked: Ai.toggleAgent()
-                    }
-
-                    StyledToolTip {
-                        id: agentTooltip
-                        extraVisibleCondition: false
-                        alternativeVisibleCondition: agentToggleMouseArea.containsMouse
-                        text: Ai.currentAgent === "plan" ? "Plan mode: read-only, no edits\nClick to switch to Build" : "Build mode: full tool access\nClick to switch to Plan"
-                    }
+                ApiInputBoxIndicator {
+                    // Tool indicator
+                    icon: "service_toolbox"
+                    text: Ai.currentTool.charAt(0).toUpperCase() + Ai.currentTool.slice(1)
+                    tooltipText: Translation.tr("Current tool: %1\nSet it with %2tool TOOL").arg(Ai.currentTool).arg(root.commandPrefix)
                 }
 
                 Item {
@@ -957,31 +781,6 @@ Inline w/ backslash and round brackets \\(e^{i\\pi} + 1 = 0\\)
                             }
                         }
                     }
-                }
-            }
-        }
-    }
-
-    // Session browser dialog
-    Loader {
-        id: sessionBrowserLoader
-        anchors.fill: parent
-        active: root.showSessionBrowser
-        onActiveChanged: {
-            if (active) {
-                item.show = true;
-                item.forceActiveFocus();
-            }
-        }
-        sourceComponent: SessionBrowserDialog {
-            show: root.showSessionBrowser
-            onDismiss: {
-                show = false;
-                root.showSessionBrowser = false;
-            }
-            onVisibleChanged: {
-                if (!visible && !root.showSessionBrowser) {
-                    sessionBrowserLoader.active = false;
                 }
             }
         }

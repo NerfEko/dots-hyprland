@@ -34,8 +34,7 @@ AbstractQuickPanel {
         GameMode {}
         IdleInhibitor {}
         EasyEffectsToggle {}
-        ProtonVpnToggle {
-            onOpenVpnDialog: root.openVpnDialog()
-        }
+        CloudflareWarp {}
+        DisplayModeToggle {}
     }
 }

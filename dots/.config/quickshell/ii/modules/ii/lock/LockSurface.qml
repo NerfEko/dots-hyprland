@@ -136,6 +136,8 @@ MouseArea {
             // Style
             clip: true
             font.pixelSize: Appearance.font.pixelSize.small
+            selectedTextColor: materialShapeChars ? "transparent" : Appearance.colors.colOnSecondaryContainer
+            selectionColor: materialShapeChars ? "transparent" : Appearance.colors.colSecondaryContainer
 
             // Password
             enabled: !root.context.unlockInProgress
@@ -195,6 +197,9 @@ MouseArea {
                 }
                 sourceComponent: PasswordChars {
                     length: root.context.currentText.length
+                    selectionStart: passwordBox.selectionStart
+                    selectionEnd: passwordBox.selectionEnd
+                    cursorPosition: passwordBox.cursorPosition
                 }
             }
         }
@@ -215,7 +220,7 @@ MouseArea {
                 iconSize: 24
                 text: {
                     if (root.context.targetAction === LockContext.ActionEnum.Unlock) {
-                        return root.ctrlHeld ? "emoji_food_beverage" : "arrow_right_alt";
+                        return root.ctrlHeld ? "coffee" : "arrow_right_alt";
                     } else if (root.context.targetAction === LockContext.ActionEnum.Poweroff) {
                         return "power_settings_new";
                     } else if (root.context.targetAction === LockContext.ActionEnum.Reboot) {
@@ -223,6 +228,38 @@ MouseArea {
                     }
                 }
                 color: confirmButton.enabled ? Appearance.colors.colOnPrimary : Appearance.colors.colSubtext
+            }
+        }
+
+        Loader {
+            Layout.rightMargin: 6
+            Layout.alignment: Qt.AlignVCenter
+            active: Config.options.faceId.enabled
+            visible: active
+
+            sourceComponent: ToolbarButton {
+                id: faceIdButton
+                implicitWidth: height
+                toggled: root.context.faceAuthInProgress
+                colBackgroundToggled: Appearance.colors.colPrimary
+
+                onClicked: {
+                    if (root.context.faceAuthInProgress) {
+                        root.context.stopFaceAuth();
+                    } else {
+                        root.context.tryFaceUnlock();
+                    }
+                }
+
+                contentItem: MaterialSymbol {
+                    anchors.centerIn: parent
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    iconSize: 24
+                    fill: root.context.faceAuthInProgress ? 1 : 0
+                    text: "face"
+                    color: root.context.faceAuthInProgress ? Appearance.colors.colOnPrimary : Appearance.colors.colOnSurfaceVariant
+                }
             }
         }
     }

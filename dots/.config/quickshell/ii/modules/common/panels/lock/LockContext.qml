@@ -1,4 +1,5 @@
 import qs
+import qs.services
 import qs.modules.common
 import QtQuick
 import Quickshell
@@ -22,6 +23,7 @@ Scope {
     property bool fingerprintsConfigured: false
     property var targetAction: LockContext.ActionEnum.Unlock
     property bool alsoInhibitIdle: false
+    property bool faceAuthInProgress: false
 
     function resetTargetAction() {
         root.targetAction = LockContext.ActionEnum.Unlock;
@@ -40,6 +42,21 @@ Scope {
         root.clearText();
         root.unlockInProgress = false;
         stopFingerPam();
+        stopFaceAuth();
+    }
+
+    function tryFaceUnlock() {
+        if (!root.faceAuthInProgress) {
+            root.faceAuthInProgress = true;
+            faceAuthProc.running = true;
+        }
+    }
+
+    function stopFaceAuth() {
+        if (faceAuthProc.running) {
+            faceAuthProc.abort();
+        }
+        root.faceAuthInProgress = false;
     }
 
     Timer {
@@ -131,6 +148,20 @@ Scope {
                 stopFingerPam();
             } else if (result == PamResult.Error) { // if timeout or etc..
                 tryFingerUnlock()
+            }
+        }
+    }
+
+    Process {
+        id: faceAuthProc
+        running: false
+        command: ["python3", "/usr/lib/howdy/compare.py", SystemInfo.username, "lock"]
+        onExited: (exitCode, exitStatus) => {
+            root.faceAuthInProgress = false;
+            if (exitCode === 0) {
+                root.unlocked(LockContext.ActionEnum.Unlock);
+            } else {
+                GlobalStates.screenUnlockFailed = true;
             }
         }
     }

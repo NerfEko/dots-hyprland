@@ -178,7 +178,11 @@ Scope {
                                 }
 
                                 implicitSize: Appearance.rounding.screenRounding
-                                color: showBarBackground ? Appearance.colors.colLayer0 : "transparent"
+                                color: {
+                                    if (!showBarBackground) return "transparent";
+                                    if (Config.options.oledMode?.enable) return "#000000";
+                                    return Appearance.colors.colLayer0;
+                                }
 
                                 corner: RoundCorner.CornerEnum.TopLeft
                                 states: State {
@@ -197,7 +201,11 @@ Scope {
                                     bottom: Config.options.bar.bottom ? parent.bottom : undefined
                                 }
                                 implicitSize: Appearance.rounding.screenRounding
-                                color: showBarBackground ? Appearance.colors.colLayer0 : "transparent"
+                                color: {
+                                    if (!showBarBackground) return "transparent";
+                                    if (Config.options.oledMode?.enable) return "#000000";
+                                    return Appearance.colors.colLayer0;
+                                }
 
                                 corner: RoundCorner.CornerEnum.TopRight
                                 states: State {

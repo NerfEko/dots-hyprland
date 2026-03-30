@@ -19,11 +19,8 @@ ColumnLayout {
     property var segmentContent: ({})
     property var segmentLang: "txt"
     property var messageData: {}
-    property var displayLang: segmentLang
-    property bool isExecutable: {
-        const lang = (segmentLang || "").toLowerCase();
-        return ["bash", "sh", "shell", "zsh", "fish"].indexOf(lang) !== -1;
-    }
+    property bool isCommandRequest: segmentLang === "command"
+    property var displayLang: (isCommandRequest ? "bash" : segmentLang)
 
     property real codeBlockBackgroundRounding: Appearance.rounding.small
     property real codeBlockHeaderPadding: 3
@@ -70,7 +67,7 @@ ColumnLayout {
                     buttonIcon: activated ? "inventory" : "content_copy"
 
                     onClicked: {
-                        Quickshell.clipboardText = segmentContent
+                        Quickshell.clipboardText = segmentContent.replace(/\n+$/, "")
                         copyCodeButton.activated = true
                         copyIconTimer.restart()
                     }
@@ -115,34 +112,6 @@ ColumnLayout {
                     }
                     StyledToolTip {
                         text: Translation.tr("Save to Downloads")
-                    }
-                }
-                AiMessageControlButton {
-                    id: runCodeButton
-                    visible: root.isExecutable
-                    buttonIcon: activated ? "check" : "play_arrow"
-
-                    onClicked: {
-                        Quickshell.execDetached(["bash", "-c", segmentContent])
-                        Quickshell.execDetached(["notify-send",
-                            Translation.tr("Code executed"),
-                            Translation.tr("Running %1 code block").arg(segmentLang || "bash"),
-                            "-a", "Shell"
-                        ])
-                        runCodeButton.activated = true
-                        runIconTimer.restart()
-                    }
-
-                    Timer {
-                        id: runIconTimer
-                        interval: 1500
-                        repeat: false
-                        onTriggered: {
-                            runCodeButton.activated = false
-                        }
-                    }
-                    StyledToolTip {
-                        text: Translation.tr("Run code")
                     }
                 }
             }
@@ -252,7 +221,7 @@ ColumnLayout {
                         // wrapMode: TextEdit.Wrap
                         color: messageData.thinking ? Appearance.colors.colSubtext : Appearance.colors.colOnLayer1
 
-                        text: segmentContent
+                        text: segmentContent.replace(/\n+$/, "")
                         onTextChanged: {
                             segmentContent = text
                         }
@@ -279,7 +248,35 @@ ColumnLayout {
                         }
                     }
                 }
-
+                Loader {
+                    active: root.isCommandRequest && root.messageData.functionPending
+                    visible: active
+                    Layout.fillWidth: true
+                    Layout.margins: 6
+                    Layout.topMargin: 0
+                    sourceComponent: RowLayout {
+                        Item { Layout.fillWidth: true }
+                        ButtonGroup {
+                            GroupButton {
+                                contentItem: StyledText {
+                                    text: Translation.tr("Reject")
+                                    font.pixelSize: Appearance.font.pixelSize.small
+                                    color: Appearance.colors.colOnLayer2
+                                }
+                                onClicked: Ai.rejectCommand(root.messageData)
+                            }
+                            GroupButton {
+                                toggled: true
+                                contentItem: StyledText {
+                                    text: Translation.tr("Approve")
+                                    font.pixelSize: Appearance.font.pixelSize.small
+                                    color: Appearance.colors.colOnPrimary
+                                }
+                                onClicked: Ai.approveCommand(root.messageData)
+                            }
+                        }
+                    }
+                }
             }
 
             // MouseArea to block scrolling

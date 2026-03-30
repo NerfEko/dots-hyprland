@@ -12,7 +12,7 @@ WindowDialog {
     backgroundHeight: 550
     backgroundWidth: 450
 
-    property var sessions: []
+    property var sessions: Ai.sessionsList
     property bool loading: Ai.sessionsLoading
 
     onVisibleChanged: {
@@ -23,11 +23,9 @@ WindowDialog {
 
     Connections {
         target: Ai
-        function onSessionsLoaded(sessionList) {
-            root.sessions = sessionList;
-        }
         function onSessionDeleted(sid) {
-            root.sessions = root.sessions.filter(s => s.id !== sid);
+            // Trigger refresh - sessionsList binding will update
+            Ai.listSessions();
         }
     }
 

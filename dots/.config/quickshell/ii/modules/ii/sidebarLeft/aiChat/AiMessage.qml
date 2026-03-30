@@ -150,6 +150,28 @@ Rectangle {
                                 (messageData?.role == 'user' && SystemInfo.username) ? SystemInfo.username :
                                 Translation.tr("Interface")
                         }
+
+                        Item { // Streaming indicator
+                            Layout.alignment: Qt.AlignVCenter
+                            visible: messageData?.role == 'assistant' && !messageData?.done
+                            implicitWidth: visible ? 10 : 0
+                            implicitHeight: visible ? 10 : 0
+
+                            Rectangle {
+                                anchors.centerIn: parent
+                                width: 8
+                                height: 8
+                                radius: 4
+                                color: Appearance.m3colors.m3primary
+
+                                SequentialAnimation on opacity {
+                                    running: messageData?.role == 'assistant' && !messageData?.done
+                                    loops: Animation.Infinite
+                                    NumberAnimation { from: 1.0; to: 0.3; duration: 600 }
+                                    NumberAnimation { from: 0.3; to: 1.0; duration: 600 }
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -267,24 +289,6 @@ Rectangle {
             id: messageContentColumnLayout
             spacing: 0
 
-            Item {
-                Layout.fillWidth: true
-                implicitHeight: loadingIndicatorLoader.shown ? loadingIndicatorLoader.implicitHeight : 0
-                implicitWidth: loadingIndicatorLoader.implicitWidth
-                visible: implicitHeight > 0
-
-                Behavior on implicitHeight {
-                    animation: Appearance.animation.elementMove.numberAnimation.createObject(this)
-                }
-                FadeLoader {
-                    id: loadingIndicatorLoader
-                    anchors.centerIn: parent
-                    shown: (root.messageBlocks.length < 1) && (!root.messageData.done)
-                    sourceComponent: MaterialLoadingIndicator {
-                        loading: true
-                    }
-                }
-            }
             Repeater {
                 model: ScriptModel {
                     values: root.messageBlocks
@@ -309,19 +313,6 @@ Rectangle {
                         messageData: root.messageData
                         done: root.messageData?.done ?? false
                         completed: modelData.completed ?? false
-                    } }
-                    DelegateChoice { roleValue: "tool"; MessageToolBlock {
-                        editing: root.editing
-                        renderMarkdown: root.renderMarkdown
-                        enableMouseSelection: root.enableMouseSelection
-                        segmentContent: modelData.content
-                        messageData: root.messageData
-                        done: root.messageData?.done ?? false
-                        completed: modelData.completed ?? false
-                        toolName: modelData.toolName ?? ""
-                        toolTitle: modelData.toolTitle ?? ""
-                        toolStatus: modelData.toolStatus ?? "running"
-                        toolInput: modelData.toolInput ?? ""
                     } }
                     DelegateChoice { roleValue: "text"; MessageTextBlock {
                         editing: root.editing

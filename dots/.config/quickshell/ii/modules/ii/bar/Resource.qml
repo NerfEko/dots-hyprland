@@ -17,7 +17,7 @@ Item {
 
     RowLayout {
         id: resourceRowLayout
-        spacing: 2
+        spacing: 0
         x: shown ? 0 : -resourceRowLayout.width
         anchors {
             verticalCenter: parent.verticalCenter
@@ -37,7 +37,7 @@ Item {
                 anchors.centerIn: parent
                 width: resourceCircProg.implicitSize
                 height: resourceCircProg.implicitSize
-                
+
                 MaterialSymbol {
                     anchors.centerIn: parent
                     font.weight: Font.DemiBold
@@ -46,26 +46,6 @@ Item {
                     iconSize: Appearance.font.pixelSize.normal
                     color: Appearance.m3colors.m3onSecondaryContainer
                 }
-            }
-        }
-
-        Item {
-            Layout.alignment: Qt.AlignVCenter
-            implicitWidth: fullPercentageTextMetrics.width
-            implicitHeight: percentageText.implicitHeight
-
-            TextMetrics {
-                id: fullPercentageTextMetrics
-                text: "100"
-                font.pixelSize: Appearance.font.pixelSize.small
-            }
-
-            StyledText {
-                id: percentageText
-                anchors.centerIn: parent
-                color: Appearance.colors.colOnLayer1
-                font.pixelSize: Appearance.font.pixelSize.small
-                text: `${Math.round(percentage * 100).toString()}`
             }
         }
 

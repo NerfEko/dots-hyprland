@@ -24,10 +24,10 @@ WMouseAreaButton {
     readonly property real screenAspectRatio: screenWidth / screenHeight
     readonly property real windowScale: wallpaperHeight / screenHeight
 
-    property real wallpaperHeight: 155 // was 124, increased 1.25x
+    property real wallpaperHeight: 124
 
     height: ListView.view?.height ?? 100
-    implicitWidth: 305 // was 244, increased 1.25x
+    implicitWidth: 244 // for now
 
     colBackground: ColorUtils.transparentize(Looks.colors.bg2, (isActiveWorkspace || droppable) ? 0 : 1)
     Behavior on color {
@@ -48,12 +48,12 @@ WMouseAreaButton {
         id: contentItem
         anchors {
             fill: parent
-            leftMargin: 15 // was 12, 1.25x
-            rightMargin: 15 // was 12, 1.25x
-            topMargin: 11 // was 9, 1.25x
-            bottomMargin: 10 // was 8, 1.25x
+            leftMargin: 12
+            rightMargin: 12
+            topMargin: 9
+            bottomMargin: 8
         }
-        spacing: 10 // was 8, 1.25x
+        spacing: 8
 
         WText {
             Layout.fillWidth: true
@@ -136,8 +136,8 @@ WMouseAreaButton {
 
         sourceComponent: Rectangle {
             id: activeIndicator
-            implicitWidth: 40 // was 32, 1.25x
-            implicitHeight: 4 // was 3, 1.25x
+            implicitWidth: 32
+            implicitHeight: 3
             color: Looks.colors.accent
             radius: height / 2
         }

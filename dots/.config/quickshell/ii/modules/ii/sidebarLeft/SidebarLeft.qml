@@ -88,8 +88,7 @@ Scope { // Scope
             visible: GlobalStates.sidebarLeftOpen
             
             property bool extend: false
-            property bool dragging: false
-            property real sidebarWidth: panelWindow.extend ? Appearance.sizes.leftSidebarWidthExtended : Appearance.sizes.leftSidebarWidth
+            property real sidebarWidth: panelWindow.extend ? Appearance.sizes.sidebarWidthExtended : Appearance.sizes.sidebarWidth
             property var contentParent: sidebarLeftBackground
 
             function hide() {
@@ -98,7 +97,7 @@ Scope { // Scope
 
             exclusionMode: ExclusionMode.Normal
             exclusiveZone: root.pin ? sidebarWidth : 0
-            implicitWidth: Math.max(Appearance.sizes.leftSidebarWidthExtended, Appearance.sizes.leftSidebarWidth) + Appearance.sizes.elevationMargin
+            implicitWidth: Appearance.sizes.sidebarWidthExtended + Appearance.sizes.elevationMargin
             WlrLayershell.namespace: "quickshell:sidebarLeft"
             // Hyprland 0.49: OnDemand is Exclusive, Exclusive just breaks click-outside-to-close
             WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
@@ -141,46 +140,13 @@ Scope { // Scope
                 anchors.leftMargin: Appearance.sizes.hyprlandGapsOut
                 width: panelWindow.sidebarWidth - Appearance.sizes.hyprlandGapsOut - Appearance.sizes.elevationMargin
                 height: parent.height - Appearance.sizes.hyprlandGapsOut * 2
-                color: Appearance.colors.colLayer0
+                color: Config.options.oledMode?.enable ? "#000000" : Appearance.colors.colLayer0
                 border.width: 1
-                border.color: Appearance.colors.colLayer0Border
+                border.color: Config.options.oledMode?.enable ? "#000000" : Appearance.colors.colLayer0Border
                 radius: Appearance.rounding.screenRounding - Appearance.sizes.hyprlandGapsOut + 1
 
                 Behavior on width {
-                    enabled: !panelWindow.dragging
                     animation: Appearance.animation.elementMove.numberAnimation.createObject(this)
-                }
-
-                // Drag-resize handle on right edge
-                MouseArea {
-                    id: resizeHandle
-                    width: 6
-                    anchors.right: sidebarLeftBackground.right
-                    anchors.top: sidebarLeftBackground.top
-                    anchors.bottom: sidebarLeftBackground.bottom
-                    cursorShape: Qt.SizeHorCursor
-                    preventStealing: true
-
-                    property real startX: 0
-                    property real startWidth: 0
-
-                    onPressed: (mouse) => {
-                        startX = mapToGlobal(mouse.x, 0).x;
-                        startWidth = Appearance.sizes.leftSidebarWidth;
-                        panelWindow.dragging = true;
-                    }
-                    onPositionChanged: (mouse) => {
-                        if (!pressed) return;
-                        const globalX = mapToGlobal(mouse.x, 0).x;
-                        const delta = globalX - startX;
-                        const minW = 400;
-                        const maxW = panelWindow.implicitWidth - Appearance.sizes.elevationMargin;
-                        const newWidth = Math.max(minW, Math.min(maxW, startWidth + delta));
-                        Config.options.sidebar.leftSidebarWidth = newWidth;
-                    }
-                    onReleased: {
-                        panelWindow.dragging = false;
-                    }
                 }
 
                 Keys.onPressed: (event) => {
@@ -219,7 +185,7 @@ Scope { // Scope
             Rectangle {
                 id: detachedSidebarBackground
                 anchors.fill: parent
-                color: Appearance.colors.colLayer0
+                color: Config.options.oledMode?.enable ? "#000000" : Appearance.colors.colLayer0
 
                 Keys.onPressed: (event) => {
                     if (event.modifiers === Qt.ControlModifier) {

@@ -25,15 +25,6 @@ ColumnLayout {
     property list<string> renderedLatexHashes: []
     property string renderedSegmentContent: ""
     property string shownText: ""
-    property string shownHtml: renderMarkdown && !editing ? StringUtils.markdownToHtml(
-        shownText,
-        Appearance.colors.colOnLayer1.toString(),
-        Appearance.m3colors.m3primary.toString(),
-        Appearance.colors.colSurfaceContainerHighest ? Appearance.colors.colSurfaceContainerHighest.toString() : "rgba(255,255,255,0.08)",
-        Appearance.m3colors.m3tertiary ? Appearance.m3colors.m3tertiary.toString() : "#e0b0ff",
-        Appearance.colors.colSubtext.toString(),
-        Appearance.colors.colSubtext.toString()
-    ) : ""
     property bool fadeChunkSplitting: !forceDisableChunkSplitting && !editing && !/\n\|/.test(shownText) && Config.options.sidebar.ai.textFadeIn
 
     Layout.fillWidth: true
@@ -91,6 +82,7 @@ ColumnLayout {
     }
 
     onSegmentContentChanged: {
+        // console.log("Segment content changed: " + segmentContent);
         renderedSegmentContent = segmentContent;
         if (!root.editing && segmentContent) {
             root.renderLatex();
@@ -121,17 +113,11 @@ ColumnLayout {
         id: textLinesRepeater
         property list<real> textLineOpacities: []
         model: ScriptModel {
-            // When rendering HTML, don't split chunks (HTML handles its own layout)
-            // When plain text or editing, split by double newlines or list items for fade-in
-            values: {
-                if (root.renderMarkdown && !root.editing) {
-                    return root.shownHtml ? [root.shownHtml] : [];
-                }
-                return root.fadeChunkSplitting ? root.shownText.split(/\n\n(?= {0,2})|\n(?= {0,2}[-\*])/g).filter(line => line.trim() !== "") : [root.shownText];
-            }
+            // Split by either double newlines or single newlines in a list
+            values: root.fadeChunkSplitting ? root.shownText.split(/\n\n(?= {0,2})|\n(?= {0,2}[-\*])/g).filter(line => line.trim() !== "") : [root.shownText]
             onValuesChanged: {
                 while (textLinesRepeater.textLineOpacities.length < values.length) {
-                    textLinesRepeater.textLineOpacities.push(1);
+                    textLinesRepeater.textLineOpacities.push(root.messageData.done ? 1 : 0);
                 }
             }
         }
@@ -174,7 +160,7 @@ ColumnLayout {
             selectionColor: Appearance.colors.colSecondaryContainer
             wrapMode: TextEdit.Wrap
             color: root.messageData?.thinking ? Appearance.colors.colSubtext : Appearance.colors.colOnLayer1
-            textFormat: editing ? TextEdit.PlainText : (renderMarkdown ? TextEdit.RichText : TextEdit.PlainText)
+            textFormat: renderMarkdown ? TextEdit.MarkdownText : TextEdit.PlainText
             text: modelData
 
             onTextChanged: {

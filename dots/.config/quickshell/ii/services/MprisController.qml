@@ -18,7 +18,12 @@ Singleton {
 	id: root;
 	property list<MprisPlayer> players: Mpris.players.values.filter(player => isRealPlayer(player));
 	property MprisPlayer trackedPlayer: null;
-	property MprisPlayer activePlayer: trackedPlayer ?? Mpris.players.values[0] ?? null;
+	property MprisPlayer activePlayer: {
+		if (trackedPlayer) return trackedPlayer;
+		const cider = Mpris.players.values.find(p => p.dbusName.startsWith('org.mpris.MediaPlayer2.cider'));
+		if (cider) return cider;
+		return Mpris.players.values[0] ?? null;
+	}
 	signal trackChanged(reverse: bool);
 
 	property bool __reverse: false;

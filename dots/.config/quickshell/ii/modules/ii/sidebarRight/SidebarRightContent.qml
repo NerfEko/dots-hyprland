@@ -13,7 +13,6 @@ import qs.modules.ii.sidebarRight.quickToggles
 import qs.modules.ii.sidebarRight.quickToggles.classicStyle
 
 import qs.modules.ii.sidebarRight.bluetoothDevices
-import qs.modules.ii.sidebarRight.gpuMode
 import qs.modules.ii.sidebarRight.nightLight
 import qs.modules.ii.sidebarRight.volumeMixer
 import qs.modules.ii.sidebarRight.wifiNetworks
@@ -27,7 +26,6 @@ Item {
     property bool showAudioOutputDialog: false
     property bool showAudioInputDialog: false
     property bool showBluetoothDialog: false
-    property bool showGpuModeDialog: false
     property bool showNightLightDialog: false
     property bool showWifiDialog: false
     property bool showVpnDialog: false
@@ -41,7 +39,6 @@ Item {
                 root.showBluetoothDialog = false;
                 root.showAudioOutputDialog = false;
                 root.showAudioInputDialog = false;
-                root.showGpuModeDialog = false;
                 root.showVpnDialog = false;
             }
         }
@@ -59,9 +56,9 @@ Item {
         anchors.fill: parent
         implicitHeight: parent.height - Appearance.sizes.hyprlandGapsOut * 2
         implicitWidth: sidebarWidth - Appearance.sizes.hyprlandGapsOut * 2
-        color: Appearance.colors.colLayer0
+        color: Config.options.oledMode?.enable ? "#000000" : Appearance.colors.colLayer0
         border.width: 1
-        border.color: Appearance.colors.colLayer0Border
+        border.color: Config.options.oledMode?.enable ? "#000000" : Appearance.colors.colLayer0Border
         radius: Appearance.rounding.screenRounding - Appearance.sizes.hyprlandGapsOut + 1
 
         ColumnLayout {
@@ -150,16 +147,6 @@ Item {
     }
 
     ToggleDialog {
-        shownPropertyString: "showGpuModeDialog"
-        dialog: GpuModeDialog {}
-        onShownChanged: {
-            if (shown) {
-                GpuMode.refresh();
-            }
-        }
-    }
-
-    ToggleDialog {
         shownPropertyString: "showWifiDialog"
         dialog: WifiDialog {}
         onShownChanged: {
@@ -225,12 +212,7 @@ Item {
             function onOpenWifiDialog() {
                 root.showWifiDialog = true;
             }
-            function onOpenGpuModeDialog() {
-                root.showGpuModeDialog = true;
-            }
-            function onOpenVpnDialog() {
-                root.showVpnDialog = true;
-            }
+            
         }
     }
 

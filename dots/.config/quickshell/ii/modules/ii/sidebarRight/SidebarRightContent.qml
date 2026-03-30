@@ -17,6 +17,7 @@ import qs.modules.ii.sidebarRight.nightLight
 import qs.modules.ii.sidebarRight.volumeMixer
 import qs.modules.ii.sidebarRight.wifiNetworks
 import qs.modules.ii.sidebarRight.vpnConnections
+import qs.modules.ii.sidebarRight.gpuMode
 
 Item {
     id: root
@@ -29,6 +30,7 @@ Item {
     property bool showNightLightDialog: false
     property bool showWifiDialog: false
     property bool showVpnDialog: false
+    property bool showGpuModeDialog: false
     property bool editMode: false
 
     Connections {
@@ -40,6 +42,7 @@ Item {
                 root.showAudioOutputDialog = false;
                 root.showAudioInputDialog = false;
                 root.showVpnDialog = false;
+                root.showGpuModeDialog = false;
             }
         }
     }
@@ -161,6 +164,11 @@ Item {
         dialog: VpnDialog {}
     }
 
+    ToggleDialog {
+        shownPropertyString: "showGpuModeDialog"
+        dialog: GpuModeDialog {}
+    }
+
     component ToggleDialog: Loader {
         id: toggleDialogLoader
         required property string shownPropertyString
@@ -211,6 +219,12 @@ Item {
             }
             function onOpenWifiDialog() {
                 root.showWifiDialog = true;
+            }
+            function onOpenVpnDialog() {
+                root.showVpnDialog = true;
+            }
+            function onOpenGpuModeDialog() {
+                root.showGpuModeDialog = true;
             }
             
         }

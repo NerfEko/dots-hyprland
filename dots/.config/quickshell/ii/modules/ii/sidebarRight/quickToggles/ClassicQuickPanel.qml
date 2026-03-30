@@ -36,7 +36,15 @@ AbstractQuickPanel {
         EasyEffectsToggle {}
         CloudflareWarp {}
         DisplayModeToggle {}
-        ProtonVpnToggle {}
-        GpuModeToggle {}
+        ProtonVpnToggle {
+            altAction: () => {
+                root.openVpnDialog();
+            }
+        }
+        GpuModeToggle {
+            altAction: () => {
+                root.openGpuModeDialog();
+            }
+        }
     }
 }

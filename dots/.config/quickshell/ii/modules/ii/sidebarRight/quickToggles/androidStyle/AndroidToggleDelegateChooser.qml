@@ -311,6 +311,9 @@ DelegateChooser {
         baseCellHeight: root.baseCellHeight
         cellSpacing: root.spacing
         cellSize: modelData.size
+        onOpenMenu: {
+            root.openVpnDialog()
+        }
     } }
 
     DelegateChoice { roleValue: "gpuMode"; AndroidGpuModeToggle {
@@ -324,5 +327,8 @@ DelegateChooser {
         baseCellHeight: root.baseCellHeight
         cellSpacing: root.spacing
         cellSize: modelData.size
+        onOpenMenu: {
+            root.openGpuModeDialog()
+        }
     } }
 }

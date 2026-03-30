@@ -12,4 +12,6 @@ Rectangle {
     signal openBluetoothDialog()
     signal openNightLightDialog()
     signal openWifiDialog()
+    signal openVpnDialog()
+    signal openGpuModeDialog()
 }

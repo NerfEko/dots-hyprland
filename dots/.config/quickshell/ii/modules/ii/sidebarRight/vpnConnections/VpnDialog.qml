@@ -30,7 +30,7 @@ WindowDialog {
     Process {
         id: fetchStatus
         running: true
-        command: ["bash", "/home/eko/.config/ags/scripts/protonvpn/vpn_status.sh"]
+        command: ["bash", `${Directories.scriptPath}/protonvpn/vpn_status.sh`]
         stdout: StdioCollector {
             id: statusCollector
             onStreamFinished: {

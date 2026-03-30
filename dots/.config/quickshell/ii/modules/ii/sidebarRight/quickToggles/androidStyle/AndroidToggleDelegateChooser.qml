@@ -19,6 +19,8 @@ DelegateChooser {
     signal openBluetoothDialog()
     signal openNightLightDialog()
     signal openWifiDialog()
+    signal openVpnDialog()
+    signal openGpuModeDialog()
 
     role: "type"
 

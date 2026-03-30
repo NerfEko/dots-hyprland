@@ -9,6 +9,19 @@ A personal fork of [dots-hyprland](https://github.com/end-4/dots-hyprland) tailo
 - Reworked AI integration - different model defaults, prompts, etc.
 - My own keybinds, theme, and preferences baked in
 
+## Quickshell Changes (latest)
+
+- **Face Auth** - face recognition lock screen with animation
+- **Voice Input** - speech-to-text input with cava visualization
+- **AI API Usage** - track API usage with provider cards and popup
+- **Network Popup** - detailed network stats in bar
+- **GPU Mode toggle** - switch GPU modes from quick panel
+- **OLED/Display Mode toggles** - screen mode quick toggles
+- **Music widget** - background music widget
+- **Cursor guide** - improved region selector overlay
+- **New translations** - Indonesian (id_ID) and Brazilian Portuguese (pt_BR)
+- Various lock screen, sidebar, bar, and AI chat improvements
+
 ## Installation
 
 ```bash

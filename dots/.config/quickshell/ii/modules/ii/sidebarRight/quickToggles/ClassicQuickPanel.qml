@@ -36,5 +36,7 @@ AbstractQuickPanel {
         EasyEffectsToggle {}
         CloudflareWarp {}
         DisplayModeToggle {}
+        ProtonVpnToggle {}
+        GpuModeToggle {}
     }
 }

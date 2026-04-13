@@ -1,0 +1,15 @@
+[Unit]
+Description=iPhone Music Control HTTP Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/home/eko/projects/iphoneCtrl/target/release/iphonectrl
+Restart=on-failure
+RestartSec=5
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+Environment=IPHONECTRL_BIND=0.0.0.0:7878
+
+[Install]
+WantedBy=default.target

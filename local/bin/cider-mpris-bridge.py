@@ -76,8 +76,11 @@ class MprisPlayer(dbus.service.Object):
                         )
 
                         if self._art_url:
-                            self._art_url = self._art_url.replace("{w}", "300").replace(
-                                "{h}", "300"
+                            import re
+
+                            parts = self._art_url.split("/")
+                            self._art_url = "/".join(
+                                p for p in parts if not re.match(r"\d+x\d+", p)
                             )
 
                         resp2 = requests.get(

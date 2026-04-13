@@ -19,16 +19,26 @@ Singleton {
     }
 
     function applyColors(fileContent) {
+        if (!fileContent || !fileContent.trim().length)
+            return
+
         const json = JSON.parse(fileContent)
         for (const key in json) {
-            if (json.hasOwnProperty(key)) {
-                // Convert snake_case to CamelCase
-                const camelCaseKey = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase())
-                const m3Key = `m3${camelCaseKey}`
+            if (!json.hasOwnProperty(key)) continue
+
+            if (/^term\d+$/.test(key)) {
+                Appearance.m3colors[key] = json[key]
+                continue
+            }
+
+            // Convert snake_case to CamelCase
+            const camelCaseKey = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase())
+            const m3Key = `m3${camelCaseKey}`
+            if (Appearance.m3colors[m3Key] !== undefined) {
                 Appearance.m3colors[m3Key] = json[key]
             }
         }
-        
+
         Appearance.m3colors.darkmode = (Appearance.m3colors.m3background.hslLightness < 0.5)
     }
 

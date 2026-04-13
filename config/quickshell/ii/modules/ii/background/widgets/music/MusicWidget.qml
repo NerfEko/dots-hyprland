@@ -30,71 +30,118 @@ AbstractBackgroundWidget {
     property real cachedPosition: 0
 
     property string artUrl: ""
-    property string lastArtFetchTitle: ""
     property string hdArtUrl: artUrl ? artUrl.replace(/\/\d+x\d+[a-z]+\.[a-z]+$/, '/512x512bb.jpg') : ""
     property string artDownloadLocation: Directories.coverArt
     property string artFileName: Qt.md5(hdArtUrl)
     property string artFilePath: `${artDownloadLocation}/${artFileName}`
     property string artImageSource: ""
+    property string pendingArtImageSource: ""
 
-    function fetchArtUrl() {
-        artUrlFetcher.running = true
+    function isLocalArtUrl(url) {
+        return typeof url === "string" && url.startsWith("file://")
     }
 
-    Process {
-        id: artUrlFetcher
-        command: ["bash", "-c", "url=$(playerctl metadata xesam:artUrl 2>/dev/null); [ -z \"$url\" ] && url=$(playerctl metadata mpris:artUrl 2>/dev/null); printf '%s' \"$url\""]
-        stdout: StdioCollector {
-            onStreamFinished: {
-                const url = text.trim()
-                if (root.artUrl !== url) root.artUrl = url
-            }
+    function setArtImageSource(source) {
+        const nextSource = source ?? ""
+
+        artSourceCommitTimer.stop()
+
+        if (nextSource.length === 0) {
+            pendingArtImageSource = ""
+            artImageSource = ""
+            return
         }
+
+        pendingArtImageSource = nextSource
+        artImageSource = ""
+        artSourceCommitTimer.start()
     }
 
-    onArtUrlChanged: {
-        if (hdArtUrl.length === 0) { root.artImageSource = ""; return; }
-        root.artImageSource = ""
+    function syncPlayerState() {
+        if (!player) {
+            cachedPosition = 0
+            artUrl = ""
+            setArtImageSource("")
+            return
+        }
+
+        cachedTitle = player.trackTitle || cachedTitle
+        cachedArtist = player.trackArtist || cachedArtist
+        cachedAlbum = player.trackAlbum || cachedAlbum
+        cachedPosition = player.position
+
+        if (player.loopState === MprisLoopState.None) cachedLoopState = 0;
+        else if (player.loopState === MprisLoopState.Track) cachedLoopState = 1;
+        else if (player.loopState === MprisLoopState.Playlist) cachedLoopState = 2;
+
+        refreshArtSource()
+    }
+
+    function refreshArtSource() {
+        artUrl = player?.trackArtUrl ?? ""
+
+        if (hdArtUrl.length === 0) {
+            coverArtDownloader.running = false
+            setArtImageSource("")
+            return
+        }
+
+        coverArtDownloader.running = false
+        if (root.isLocalArtUrl(hdArtUrl)) {
+            setArtImageSource(hdArtUrl)
+            return
+        }
+
         const target = hdArtUrl
         const path = root.artFilePath
-        coverArtDownloader.running = false
+        const escapedTarget = StringUtils.shellSingleQuoteEscape(target)
+        const escapedPath = StringUtils.shellSingleQuoteEscape(path)
+        const escapedDir = StringUtils.shellSingleQuoteEscape(root.artDownloadLocation)
+        coverArtDownloader.targetUrl = target
         coverArtDownloader.command = ["bash", "-c",
-            `[ -f '${path}' ] || { curl -sSL '${target}' -o '${path}.tmp' && mv '${path}.tmp' '${path}' || { rm -f '${path}.tmp'; exit 1; }; }; printf '%s' '${path}'`
+            `mkdir -p '${escapedDir}' && [ -f '${escapedPath}' ] || { curl -sSL '${escapedTarget}' -o '${escapedPath}.tmp' && mv '${escapedPath}.tmp' '${escapedPath}' || { rm -f '${escapedPath}.tmp'; exit 1; }; }; printf '%s' '${escapedPath}'`
         ]
         coverArtDownloader.running = true
     }
 
+    Timer {
+        id: artSourceCommitTimer
+        interval: 0
+        repeat: false
+        onTriggered: root.artImageSource = root.pendingArtImageSource
+    }
+
     Process {
         id: coverArtDownloader
+        property string targetUrl: ""
         stdout: StdioCollector {
             onStreamFinished: {
                 const path = text.trim()
-                if (path.length > 0) root.artImageSource = "file://" + path
+                if (path.length > 0 && coverArtDownloader.targetUrl === root.hdArtUrl) {
+                    root.setArtImageSource("file://" + path)
+                }
             }
         }
     }
 
-    onPlayerChanged: {
-        if (player) {
-            cachedTitle = player.trackTitle || cachedTitle
-            cachedArtist = player.trackArtist || cachedArtist
-            cachedAlbum = player.album || cachedAlbum
-            cachedPosition = player.position
-            if (player.loopState === MprisLoopState.None) cachedLoopState = 0;
-            else if (player.loopState === MprisLoopState.Track) cachedLoopState = 1;
-            else if (player.loopState === MprisLoopState.Playlist) cachedLoopState = 2;
-        }
-    }
+    onPlayerChanged: syncPlayerState()
 
     Connections {
         target: MprisController
         function onTrackChanged() {
-            if (player) {
-                cachedTitle = player.trackTitle || cachedTitle
-                cachedArtist = player.trackArtist || cachedArtist
-                cachedAlbum = player.album || cachedAlbum
-            }
-            root.fetchArtUrl()
+            root.syncPlayerState()
+        }
+    }
+
+    Connections {
+        target: player
+
+        function onPostTrackChanged() {
+            root.syncPlayerState()
+        }
+
+        function onTrackArtUrlChanged() {
+            root.refreshArtSource()
         }
     }
 
@@ -107,28 +154,16 @@ AbstractBackgroundWidget {
                 player.positionChanged()
                 cachedTitle = player.trackTitle || cachedTitle
                 cachedArtist = player.trackArtist || cachedArtist
-                cachedAlbum = player.album || cachedAlbum
+                cachedAlbum = player.trackAlbum || cachedAlbum
                 cachedPosition = player.position
                 if (player.loopState === MprisLoopState.None) cachedLoopState = 0;
                 else if (player.loopState === MprisLoopState.Track) cachedLoopState = 1;
                 else if (player.loopState === MprisLoopState.Playlist) cachedLoopState = 2;
             }
-            const title = cachedTitle
-            if (title.length > 0 && title !== root.lastArtFetchTitle) {
-                root.lastArtFetchTitle = title
-                root.fetchArtUrl()
-            }
         }
     }
 
-    Component.onCompleted: {
-        if (player) {
-            cachedTitle = player.trackTitle || ""
-            cachedArtist = player.trackArtist || ""
-            cachedAlbum = player.album || ""
-        }
-        root.fetchArtUrl()
-    }
+    Component.onCompleted: syncPlayerState()
 
     Rectangle {
         id: background

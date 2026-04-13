@@ -28,6 +28,15 @@ node_modules/
 .cursor/settings.json
 .idea/
 
+# Local agent/editor metadata
+config/quickshell/.claude/
+config/quickshell/.pi/
+config/quickshell/CLAUDE.md
+config/quickshell/ii/.claude/
+config/quickshell/ii/CLAUDE.md
+config/nvim/.git/
+config/nvim/pack/
+local/bin/__pycache__/
+
 # Flatpak
 .var/
-config/nvim/pack/

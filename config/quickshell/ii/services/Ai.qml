@@ -43,7 +43,7 @@ Singleton {
     readonly property var apiKeys: KeyringStorage.keyringData?.apiKeys ?? {}
     readonly property var apiKeysLoaded: KeyringStorage.loaded
     readonly property bool currentModelHasApiKey: {
-        const model = models[currentModelId];
+        const model = root.getModel();
         if (!model || !model.requires_key) return true;
         if (!apiKeysLoaded) return false;
         const key = apiKeys[model.key_id];
@@ -722,7 +722,10 @@ Singleton {
             ],
         }
     }
-    property list<var> availableTools: Object.keys(root.tools[models[currentModelId]?.api_format])
+    property list<var> availableTools: {
+        const apiFormat = root.getModel()?.api_format;
+        return apiFormat && root.tools[apiFormat] ? Object.keys(root.tools[apiFormat]) : [];
+    }
     property var toolDescriptions: {
         "functions": Translation.tr("Commands, edit configs, read/write files, search.\nTakes an extra turn to switch to search mode if that's needed"),
         "files": Translation.tr("Read, write, and edit files only.\nSlower than none, but full file operations"),
@@ -785,14 +788,14 @@ Singleton {
         }),
     }
     property var modelList: Object.keys(root.models)
-    property var currentModelId: Persistent.states?.ai?.model || modelList[0]
+    property string currentModelId: root.resolveModelId(Persistent.states?.ai?.model)
 
     property var apiStrategies: {
         "openai": openaiApiStrategy.createObject(this),
         "gemini": geminiApiStrategy.createObject(this),
         "mistral": mistralApiStrategy.createObject(this),
     }
-    property ApiStrategy currentApiStrategy: apiStrategies[models[currentModelId]?.api_format || "openai"]
+    property ApiStrategy currentApiStrategy: apiStrategies[root.getModel()?.api_format || "openai"]
 
     Connections {
         target: Config
@@ -835,6 +838,18 @@ Singleton {
 
     function addModel(modelName, data) {
         root.models[modelName] = aiModelComponent.createObject(this, data);
+    }
+
+    function normalizeModelId(modelId) {
+        return typeof modelId === "string" ? modelId.toLowerCase() : "";
+    }
+
+    function resolveModelId(modelId) {
+        const normalizedModelId = root.normalizeModelId(modelId);
+        if (normalizedModelId.length > 0 && modelList.indexOf(normalizedModelId) !== -1) {
+            return normalizedModelId;
+        }
+        return modelList[0] ?? "";
     }
 
     Process {
@@ -961,42 +976,51 @@ Singleton {
         );
     }
 
-    function getModel() {
-        return models[currentModelId];
+    function getModel(modelId = currentModelId) {
+        const resolvedModelId = root.resolveModelId(modelId);
+        return resolvedModelId.length > 0 ? models[resolvedModelId] : null;
     }
 
     function setModel(modelId, feedback = true, setPersistentState = true) {
-        if (!modelId) modelId = ""
-        modelId = modelId.toLowerCase()
-        if (modelList.indexOf(modelId) !== -1) {
-            const model = models[modelId]
-            // See if policy prevents online models
-            if (Config.options.policies.ai === 2 && !model.endpoint.includes("localhost")) {
-                root.addMessage(
-                    Translation.tr("Online models disallowed\n\nControlled by `policies.ai` config option"),
-                    root.interfaceRole
-                );
-                return;
-            }
-            if (setPersistentState) Persistent.states.ai.model = modelId;
-            if (feedback) root.addMessage(Translation.tr("Model set to %1").arg(model.name), root.interfaceRole);
-            if (model.requires_key) {
-                // If key not there show advice
-                if (root.apiKeysLoaded && (!root.apiKeys[model.key_id] || root.apiKeys[model.key_id].length === 0)) {
-                    root.addApiKeyAdvice(model)
-                }
-            }
-            // Default to no tools for Ollama models - user can enable with /tool when needed
-            if (model.endpoint.includes("localhost")) {
-                root.currentTool = "none";
-            }
-        } else {
-            if (feedback) root.addMessage(Translation.tr("Invalid model. Supported: \n```\n") + modelList.join("\n```\n```\n"), Ai.interfaceRole) + "\n```"
+        const requestedModelId = root.normalizeModelId(modelId);
+        const resolvedModelId = root.resolveModelId(requestedModelId);
+        if (!resolvedModelId) {
+            if (feedback) root.addMessage(Translation.tr("No AI models are currently available"), root.interfaceRole);
+            return false;
         }
+        if (requestedModelId.length > 0 && requestedModelId !== resolvedModelId && feedback) {
+            root.addMessage(Translation.tr("Invalid model. Supported: \n```\n") + modelList.join("\n```\n```\n"), Ai.interfaceRole) + "\n```"
+            return false;
+        }
+
+        const model = root.getModel(resolvedModelId)
+        // See if policy prevents online models
+        if (Config.options.policies.ai === 2 && !model.endpoint.includes("localhost")) {
+            root.addMessage(
+                Translation.tr("Online models disallowed\n\nControlled by `policies.ai` config option"),
+                root.interfaceRole
+            );
+            return false;
+        }
+        if (setPersistentState) Persistent.states.ai.model = resolvedModelId;
+        if (feedback) root.addMessage(Translation.tr("Model set to %1").arg(model.name), root.interfaceRole);
+        if (model.requires_key) {
+            // If key not there show advice
+            if (root.apiKeysLoaded && (!root.apiKeys[model.key_id] || root.apiKeys[model.key_id].length === 0)) {
+                root.addApiKeyAdvice(model)
+            }
+        }
+        // Default to no tools for Ollama models - user can enable with /tool when needed
+        if (model.endpoint.includes("localhost")) {
+            root.currentTool = "none";
+        }
+        return true;
     }
 
     function setTool(tool) {
-        if (!root.tools[models[currentModelId]?.api_format] || !(tool in root.tools[models[currentModelId]?.api_format])) {
+        const model = root.getModel();
+        const modelTools = model ? root.tools[model.api_format] : null;
+        if (!modelTools || !(tool in modelTools)) {
             root.addMessage(Translation.tr("Invalid tool. Supported tools:\n- %1").arg(root.availableTools.join("\n- ")), root.interfaceRole);
             return false;
         }
@@ -1019,13 +1043,16 @@ Singleton {
     }
 
     function setApiKey(key) {
-        const model = models[currentModelId];
+        const model = root.getModel();
+        if (!model) {
+            root.addMessage(Translation.tr("No AI models are currently available"), Ai.interfaceRole);
+            return;
+        }
         if (!model.requires_key) {
             root.addMessage(Translation.tr("%1 does not require an API key").arg(model.name), Ai.interfaceRole);
             return;
         }
         if (!key || key.length === 0) {
-            const model = models[currentModelId];
             root.addApiKeyAdvice(model)
             return;
         }
@@ -1034,7 +1061,11 @@ Singleton {
     }
 
     function printApiKey() {
-        const model = models[currentModelId];
+        const model = root.getModel();
+        if (!model) {
+            root.addMessage(Translation.tr("No AI models are currently available"), Ai.interfaceRole);
+            return;
+        }
         if (model.requires_key) {
             const key = root.apiKeys[model.key_id];
             if (key) {
@@ -1080,7 +1111,12 @@ Singleton {
         }
 
         function makeRequest() {
-            const model = models[currentModelId];
+            const model = root.getModel();
+            if (!model) {
+                root.addMessage(Translation.tr("No AI models are currently available"), Ai.interfaceRole);
+                root.responseFinished()
+                return;
+            }
 
             // Fetch API keys if needed
             if (model?.requires_key && !KeyringStorage.loaded) KeyringStorage.fetchKeyringData();
@@ -1095,7 +1131,7 @@ Singleton {
             const endpoint = root.currentApiStrategy.buildEndpoint(model);
             const messageArray = root.messageIDs.map(id => root.messageByID[id]);
             const filteredMessageArray = messageArray.filter(message => message.role !== Ai.interfaceRole);
-            const data = root.currentApiStrategy.buildRequestData(model, filteredMessageArray, root.systemPrompt, root.temperature, model.endpoint.includes("localhost") ? [] : root.tools[model.api_format][root.currentTool], root.pendingFilePath);
+            const data = root.currentApiStrategy.buildRequestData(model, filteredMessageArray, root.systemPrompt, root.temperature, model.endpoint.includes("localhost") ? [] : (root.tools[model.api_format]?.[root.currentTool] ?? []), root.pendingFilePath);
 
             let requestHeaders = {
                 "Content-Type": "application/json",
@@ -1104,7 +1140,7 @@ Singleton {
             /* Create local message object */
             requester.message = root.aiMessageComponent.createObject(root, {
                 "role": "assistant",
-                "model": currentModelId,
+                "model": root.resolveModelId(currentModelId),
                 "content": "",
                 "rawContent": "",
                 "thinking": true,

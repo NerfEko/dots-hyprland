@@ -142,8 +142,13 @@ Singleton {
                     }
                 }
                 property JsonObject palette: JsonObject {
-                    property string type: "auto" // Allowed: auto, scheme-content, scheme-expressive, scheme-fidelity, scheme-fruit-salad, scheme-monochrome, scheme-neutral, scheme-rainbow, scheme-tonal-spot
+                    property string type: "auto" // Allowed: auto, dracula, dracula-plus, scheme-content, scheme-expressive, scheme-fidelity, scheme-fruit-salad, scheme-monochrome, scheme-neutral, scheme-rainbow, scheme-tonal-spot
                     property string accentColor: ""
+                }
+                property JsonObject theme: JsonObject {
+                    property string mode: "legacy-palette" // Allowed: legacy-palette, imported, reactive-wallpaper
+                    property string selectedId: "dracula"
+                    property string resolvedId: ""
                 }
             }
 
@@ -225,6 +230,17 @@ Singleton {
                         property real y: 100
                         property real width: 280
                         property real height: 450
+                    }
+                    property JsonObject roku: JsonObject {
+                        property bool enable: true
+                        property string placementStrategy: "free" // "free", "leastBusy", "mostBusy"
+                        property real x: 180
+                        property real y: 120
+                        property real width: 320
+                        property real height: 520
+                        property string preferredDeviceId: ""
+                        property int discoveryInterval: 30
+                        property real discoveryTimeout: 2.0
                     }
                 }
                 property string wallpaperPath: ""

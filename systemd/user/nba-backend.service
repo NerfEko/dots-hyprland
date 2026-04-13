@@ -1,0 +1,18 @@
+[Unit]
+Description=NBA Stats Backend (FastAPI + static frontend)
+After=nba-redis.service
+Requires=nba-redis.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/eko/projects/NBAstats/backend
+Environment=PATH=/home/eko/projects/NBAstats/backend/.venv/bin:/usr/local/bin:/usr/bin
+ExecStartPre=-/usr/bin/fuser -k 8000/tcp
+ExecStart=/home/eko/projects/NBAstats/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Install]
+WantedBy=default.target

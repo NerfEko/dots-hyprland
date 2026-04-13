@@ -1,0 +1,12 @@
+[Unit]
+Description=EkoAI Tunnel
+After=network.target ekoai-web.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/cloudflared tunnel run
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

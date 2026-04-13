@@ -24,6 +24,25 @@ if status is-interactive # Commands to run in interactive sessions can go here
     alias ls 'eza --icons'
     alias pamcan pacman
     alias q 'qs -c ii'
+    function ccc
+        set -l model "claude-sonnet-4.6"
+        if test (count $argv) -gt 0
+            switch $argv[1]
+                case opus
+                    set model "claude-opus-4.6"
+                case sonnet
+                    set model "claude-sonnet-4.6"
+                case haiku gpt
+                    set model $argv[1]
+            end
+        end
+        claude --settings ~/.config/claude/copilot.json --model $model
+    end
     
 end
 fish_add_path $HOME/.local/bin
+
+# Added by LM Studio CLI (lms)
+set -gx PATH $PATH /home/eko/.lmstudio/bin
+# End of LM Studio CLI section
+

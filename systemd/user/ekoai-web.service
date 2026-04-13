@@ -1,0 +1,12 @@
+[Unit]
+Description=EkoAI Web
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/node /home/eko/ollama-web/server.js
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

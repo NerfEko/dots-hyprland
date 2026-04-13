@@ -614,4 +614,133 @@ ContentPage {
             }
         }
     }
+
+    ContentSection {
+        icon: "tv"
+        title: Translation.tr("Widget: Roku Remote")
+
+        ConfigRow {
+            Layout.fillWidth: true
+
+            ConfigSwitch {
+                Layout.fillWidth: false
+                buttonIcon: "check"
+                text: Translation.tr("Enable")
+                checked: Config.options.background.widgets.roku.enable
+                onCheckedChanged: {
+                    Config.options.background.widgets.roku.enable = checked;
+                    if (checked)
+                        RokuRemote.refreshDevices();
+                }
+            }
+            Item {
+                Layout.fillWidth: true
+            }
+            ConfigSelectionArray {
+                Layout.fillWidth: false
+                currentValue: Config.options.background.widgets.roku.placementStrategy
+                onSelected: newValue => {
+                    Config.options.background.widgets.roku.placementStrategy = newValue;
+                }
+                options: [
+                    {
+                        displayName: Translation.tr("Draggable"),
+                        icon: "drag_pan",
+                        value: "free"
+                    },
+                    {
+                        displayName: Translation.tr("Least busy"),
+                        icon: "category",
+                        value: "leastBusy"
+                    },
+                    {
+                        displayName: Translation.tr("Most busy"),
+                        icon: "shapes",
+                        value: "mostBusy"
+                    },
+                ]
+            }
+        }
+
+        ContentSubsection {
+            title: Translation.tr("Discovery")
+
+            ConfigRow {
+                StyledComboBox {
+                    id: preferredDeviceSelector
+                    Layout.fillWidth: true
+                    buttonIcon: "tv"
+                    textRole: "displayName"
+                    model: [{
+                        displayName: Translation.tr("Auto (first available)"),
+                        value: "",
+                        icon: "auto_awesome"
+                    }, ...RokuRemote.availableDevices.map(device => {
+                        return {
+                            displayName: `${device.name}${device.ecpSettingMode === "limited" ? " (limited)" : ""}`,
+                            value: device.id,
+                            icon: "tv"
+                        };
+                    })]
+                    currentIndex: {
+                        const index = model.findIndex(item => item.value === Config.options.background.widgets.roku.preferredDeviceId);
+                        return index >= 0 ? index : 0;
+                    }
+                    onActivated: index => {
+                        RokuRemote.setPreferredDeviceId(model[index].value);
+                    }
+                }
+
+                RippleButton {
+                    implicitWidth: 44
+                    implicitHeight: 44
+                    enabled: !RokuRemote.isDiscovering
+                    onClicked: RokuRemote.refreshDevices()
+
+                    colBackground: ColorUtils.transparentize(Appearance.colors.colSecondaryContainer, 1)
+                    colBackgroundHover: Appearance.colors.colSecondaryContainerHover
+
+                    contentItem: MaterialSymbol {
+                        text: RokuRemote.isDiscovering ? "sync" : "refresh"
+                        iconSize: 22
+                        fill: 1
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        color: Appearance.colors.colOnSecondaryContainer
+                    }
+                }
+            }
+
+            ConfigSpinBox {
+                icon: "timer"
+                text: Translation.tr("Refresh interval (s)")
+                value: Config.options.background.widgets.roku.discoveryInterval
+                from: 10
+                to: 300
+                stepSize: 5
+                onValueChanged: {
+                    Config.options.background.widgets.roku.discoveryInterval = value;
+                }
+            }
+
+            StyledText {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                color: Appearance.colors.colSubtext
+                text: RokuRemote.activeDevice
+                    ? `${Translation.tr("Active device")}: ${RokuRemote.activeDevice.name} (${RokuRemote.activeDevice.host})`
+                    : (RokuRemote.isDiscovering
+                        ? Translation.tr("Looking for Roku devices on your network...")
+                        : Translation.tr("No Roku device discovered yet."))
+            }
+
+            StyledText {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                visible: RokuRemote.lastError.length > 0
+                color: Appearance.colors.colSubtext
+                text: RokuRemote.lastError
+            }
+        }
+    }
 }

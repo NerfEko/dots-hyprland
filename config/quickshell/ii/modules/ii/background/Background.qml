@@ -18,6 +18,7 @@ import qs.modules.ii.background.widgets
 import qs.modules.ii.background.widgets.clock
 import qs.modules.ii.background.widgets.weather
 import qs.modules.ii.background.widgets.music
+import qs.modules.ii.background.widgets.roku
 
 Variants {
     id: root
@@ -297,6 +298,17 @@ Variants {
                 FadeLoader {
                     shown: Config.options.background.widgets.music.enable
                     sourceComponent: MusicWidget {
+                        screenWidth: bgRoot.screen.width
+                        screenHeight: bgRoot.screen.height
+                        scaledScreenWidth: bgRoot.screen.width / bgRoot.effectiveWallpaperScale
+                        scaledScreenHeight: bgRoot.screen.height / bgRoot.effectiveWallpaperScale
+                        wallpaperScale: bgRoot.effectiveWallpaperScale
+                    }
+                }
+
+                FadeLoader {
+                    shown: Config.options.background.widgets.roku.enable
+                    sourceComponent: RokuRemoteWidget {
                         screenWidth: bgRoot.screen.width
                         screenHeight: bgRoot.screen.height
                         scaledScreenWidth: bgRoot.screen.width / bgRoot.effectiveWallpaperScale

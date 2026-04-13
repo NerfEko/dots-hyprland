@@ -19,10 +19,15 @@ Singleton {
 	property list<MprisPlayer> players: Mpris.players.values.filter(player => isRealPlayer(player));
 	property MprisPlayer trackedPlayer: null;
 	property MprisPlayer activePlayer: {
-		if (trackedPlayer) return trackedPlayer;
-		const cider = Mpris.players.values.find(p => p.dbusName.startsWith('org.mpris.MediaPlayer2.cider'));
-		if (cider) return cider;
-		return Mpris.players.values[0] ?? null;
+		const fallbackPlayer = bestAvailablePlayer();
+		if (!trackedPlayer || !isRealPlayer(trackedPlayer)) {
+			return fallbackPlayer;
+		}
+
+		const trackedScore = playerMetadataScore(trackedPlayer);
+		const fallbackScore = playerMetadataScore(fallbackPlayer);
+
+		return trackedScore >= fallbackScore ? trackedPlayer : fallbackPlayer;
 	}
 	signal trackChanged(reverse: bool);
 
@@ -49,8 +54,39 @@ Singleton {
             // playerctld just copies other buses and we don't need duplicates
             !player.dbusName?.startsWith('org.mpris.MediaPlayer2.playerctld') &&
             // Non-instance mpd bus
-            !(player.dbusName?.endsWith('.mpd') && !player.dbusName.endsWith('MediaPlayer2.mpd')));
+             !(player.dbusName?.endsWith('.mpd') && !player.dbusName.endsWith('MediaPlayer2.mpd')));
     }
+
+	function playerMetadataScore(player) {
+		if (!player || !isRealPlayer(player)) return -1;
+
+		let score = 0;
+		if (player.isPlaying) score += 100;
+		if ((player.trackTitle ?? "").length > 0) score += 20;
+		if ((player.trackArtist ?? "").length > 0) score += 15;
+		if ((player.trackAlbum ?? "").length > 0) score += 10;
+		if ((player.trackArtUrl ?? "").length > 0) score += 15;
+
+		return score;
+	}
+
+	function bestAvailablePlayer() {
+		const candidates = root.players;
+		if (candidates.length === 0) return null;
+
+		let bestPlayer = candidates[0];
+		let bestScore = playerMetadataScore(bestPlayer);
+
+		for (const player of candidates.slice(1)) {
+			const score = playerMetadataScore(player);
+			if (score > bestScore) {
+				bestPlayer = player;
+				bestScore = score;
+			}
+		}
+
+		return bestPlayer;
+	}
 
 	// Original stuff from fox below
 	Instantiator {

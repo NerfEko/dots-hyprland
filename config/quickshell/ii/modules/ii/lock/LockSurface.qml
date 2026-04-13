@@ -9,6 +9,8 @@ import qs.modules.common.widgets
 import qs.modules.common.functions
 import qs.modules.common.panels.lock
 import qs.modules.ii.bar as Bar
+import qs.modules.ii.background.widgets.music
+import qs.modules.ii.background.widgets.roku
 import Quickshell
 import Quickshell.Services.SystemTray
 
@@ -95,6 +97,26 @@ MouseArea {
     //         text: "[[ DEBUG BYPASS ]]"
     //     }
     // }
+
+    MusicWidget {
+        z: 1
+        visibleWhenLocked: true
+        screenWidth: root.width
+        screenHeight: root.height
+        scaledScreenWidth: root.width
+        scaledScreenHeight: root.height
+        wallpaperScale: 1
+    }
+
+    RokuRemoteWidget {
+        z: 1
+        visibleWhenLocked: true
+        screenWidth: root.width
+        screenHeight: root.height
+        scaledScreenWidth: root.width
+        scaledScreenHeight: root.height
+        wallpaperScale: 1
+    }
 
     // Main toolbar: password box
     Toolbar {

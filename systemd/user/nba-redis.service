@@ -1,0 +1,12 @@
+[Unit]
+Description=Redis (NBA Stats)
+Before=nba-backend.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/redis-server --daemonize no --port 6379
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

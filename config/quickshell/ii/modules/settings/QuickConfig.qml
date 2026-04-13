@@ -172,50 +172,41 @@ ContentPage {
             }
         }
 
-        ConfigSelectionArray {
-            currentValue: Config.options.appearance.palette.type
-            onSelected: newValue => {
-                Config.options.appearance.palette.type = newValue;
-                Quickshell.execDetached(["bash", "-c", `${Directories.wallpaperSwitchScriptPath} --noswitch`]);
-            }
-            options: [
-                {
-                    "value": "auto",
-                    "displayName": Translation.tr("Auto")
-                },
-                {
-                    "value": "scheme-content",
-                    "displayName": Translation.tr("Content")
-                },
-                {
-                    "value": "scheme-expressive",
-                    "displayName": Translation.tr("Expressive")
-                },
-                {
-                    "value": "scheme-fidelity",
-                    "displayName": Translation.tr("Fidelity")
-                },
-                {
-                    "value": "scheme-fruit-salad",
-                    "displayName": Translation.tr("Fruit Salad")
-                },
-                {
-                    "value": "scheme-monochrome",
-                    "displayName": Translation.tr("Monochrome")
-                },
-                {
-                    "value": "scheme-neutral",
-                    "displayName": Translation.tr("Neutral")
-                },
-                {
-                    "value": "scheme-rainbow",
-                    "displayName": Translation.tr("Rainbow")
-                },
-                {
-                    "value": "scheme-tonal-spot",
-                    "displayName": Translation.tr("Tonal Spot")
+        ContentSubsection {
+            title: Translation.tr("Theme")
+            tooltip: Translation.tr("Open the theme browser to search imported Ghostty themes, view previews, or switch to wallpaper-reactive and legacy modes.")
+
+            ThemePalettePicker {
+                Layout.fillWidth: true
+                model: ImportedThemes.options
+                currentIndex: ImportedThemes.currentOptionIndex()
+
+                onPicked: index => {
+                    const option = model[index];
+                    if (!option) return;
+
+                    if (option.mode === "imported") {
+                        Config.options.appearance.theme.mode = "imported";
+                        Config.options.appearance.theme.selectedId = option.value;
+                    } else if (option.mode === "reactive-wallpaper") {
+                        Config.options.appearance.theme.mode = "reactive-wallpaper";
+                    } else {
+                        Config.options.appearance.theme.mode = "legacy-palette";
+                        Config.options.appearance.palette.type = option.value;
+                    }
+
+                    Quickshell.execDetached(["bash", "-c", `${Directories.wallpaperSwitchScriptPath} --noswitch`]);
                 }
-            ]
+            }
+
+            StyledText {
+                Layout.fillWidth: true
+                visible: Config.options.appearance.theme.mode === "reactive-wallpaper"
+                text: ImportedThemes.reactiveStatusText
+                color: Appearance.colors.colSubtext
+                wrapMode: Text.Wrap
+                font.pixelSize: Appearance.font.pixelSize.small
+            }
         }
 
         ConfigSwitch {

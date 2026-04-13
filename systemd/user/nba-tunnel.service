@@ -1,0 +1,15 @@
+[Unit]
+Description=NBA Stats Cloudflare Tunnel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=eko
+ExecStart=/usr/bin/cloudflared tunnel --config /home/eko/projects/NBAstats/cloudflared.yml run nba-stats
+Restart=on-failure
+RestartSec=5
+Environment=NO_AUTOUPDATE=true
+
+[Install]
+WantedBy=default.target
